@@ -1,0 +1,8 @@
+# develop and build
+build
+.vscode
+
+# temporary file
+*.o
+*.ast
+*.bc
