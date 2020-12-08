@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "ASTManager.h"
+#include "ConfigManager.h"
 
 #include <llvm-c/Target.h>
 #include <llvm/Support/Error.h>
@@ -76,6 +77,9 @@ int main(int argc, char *argv[]) {
                  << "\n";
     llvm::errs() << "field var function ptr call: "
                  << manager.getFieldVarFPCnt() << "\n";
+  } else if (argc == 3) {
+    ConfigManager cfgmgr(argv[1], argv[2]);
+    cfgmgr.dump();
   } else {
     llvm::errs() << "TODO\n";
   }
