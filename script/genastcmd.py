@@ -14,6 +14,7 @@ import json
 # 3 将修改后的编译命令整合到的 buildast.sh 文件
 # 4 生成 astList.txt, 存放所有ast文件的绝对路径
 # 5 将跳过的编译命令存放到 skip_compile_commands.json
+# 6 生成 src2ast.txt, 存放所有源代码文件与 ast 文件绝对路径的对应关系
 # 其他
 # 1 生成的 buildast.sh 支持并行编译生成 ast 文件
 # 2 在 in ubuntu 18.04, bear 2.3.11, llvm 9 环境下对 cpython3.8, mysql-5.6.46, **linux-5.8** 测试
@@ -67,6 +68,8 @@ astFile_list = []
 astFile_fn = "astList.txt"
 skipcmd_list = []
 skipcmd_fn = "skip_compile_commands.json"
+src2ast_abspath_map = []
+src2ast_abspath_map_fn = "src2ast.txt"
 
 if not os.path.exists(compile_commands_files):
     print("[-] compile_commands.json not exist!")
@@ -204,6 +207,8 @@ for cc in ccjson:
         buildast_sh_list.append("  )")
         buildast_sh_list.append("  " + parallel_write_fifo_token)
         buildast_sh_list.append("} &\n")
+        # add to src2ast map
+        src2ast_abspath_map.append("{src} {ast}".format(src=abs_filepath,ast=output_new))
     else:
         print("[-] Todo(Ops, not support!)")
         exit(1)
@@ -217,3 +222,6 @@ with open(astFile_fn, mode='w', encoding="utf-8") as fw:
 
 with open(skipcmd_fn, mode='w', encoding="utf-8") as fw:
     json.dump(skipcmd_list, fw, indent=4)
+
+with open(src2ast_abspath_map_fn, mode='w', encoding="utf-8") as fw:
+    fw.writelines('\n'.join(src2ast_abspath_map))
