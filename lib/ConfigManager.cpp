@@ -3,7 +3,7 @@
 
 #include <fstream>
 
-#include <llvm/Support/raw_ostream.h>
+#include "llvm/Support/raw_ostream.h"
 
 using namespace lksast;
 
@@ -11,6 +11,11 @@ ConfigManager::ConfigManager(const string &extdef2src_file,
                              const string &src2ast_file) {
   load_extdef2src_map(extdef2src_file);
   load_src2ast_map(src2ast_file);
+  ignorePath.push_back("/usr/include");
+  ignorePath.push_back("arch/x86/include/asm/string.h");
+  ignorePath.push_back("include/uapi/linux/byteorder");
+  ignorePath.push_back("include/linux/byteorder");
+  ignorePath.push_back("linux/kernel.h");
 }
 
 ConfigManager::~ConfigManager() {
@@ -153,4 +158,40 @@ void ConfigManager::dump() {
     }
     i++;
   }
+}
+
+bool ConfigManager::isNeedToAnalysis(clang::SourceManager &SM,
+                                     clang::SourceLocation SL) {
+  if (SM.isInSystemHeader(SL)) {
+    return false;
+  }
+  if (SM.isInExternCSystemHeader(SL)) {
+    return false;
+  }
+  if (SM.isInSystemMacro(SL)) {
+    return false;
+  }
+  std::string locstr = SL.printToString(SM);
+  for (auto &igp : ignorePath) {
+    if (locstr.find(igp) != string::npos) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool ConfigManager::isNeedToAnalysis(clang::Decl *D) {
+  if (D == nullptr) {
+    return false;
+  }
+  if (const clang::FunctionDecl *FD = D->getAsFunction()) {
+    // TODO: ignore builtin
+    std::string funcname = FD->getName().str();
+    if (hasAnalysisFunc_set.find(funcname) != hasAnalysisFunc_set.end()) {
+      // llvm::errs() << "[!] has been handled: [" << funcname << " ]\n";
+      return false;
+    }
+  }
+  clang::SourceManager &sm = D->getASTContext().getSourceManager();
+  return isNeedToAnalysis(sm, D->getLocation());
 }
