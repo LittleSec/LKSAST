@@ -1,6 +1,8 @@
 #ifndef LKSAST_AST_MANAGER_H
 #define LKSAST_AST_MANAGER_H
 
+#include "Common.h"
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -9,12 +11,6 @@
 #include <clang/Frontend/ASTUnit.h>
 
 namespace lksast {
-
-#define CLASS_MEMBER_GETTER_PROTO(_rettype, _name, _member)                    \
-  _rettype get##_name() { return _member; }
-
-#define PRIVATE_MEMBER_GETTER(_rettype, _name)                                 \
-  CLASS_MEMBER_GETTER_PROTO(_rettype, _name, _##_name)
 
 class ASTManager {
 private:
