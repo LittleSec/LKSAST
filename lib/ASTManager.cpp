@@ -152,7 +152,7 @@ ASTManager::ASTManager(const std::string &astListxt)
     : _DirectCallCnt(0), _VarFPCnt(0), _ParmVarFPCnt(0), _FieldVarFPCnt(0) {
   initAFsFromASTListxt(astListxt);
   initAUsFromAFs();
-  initFDsFromAUs();
+  // initFDsFromAUs();
 }
 
 void ASTManager::initAFsFromASTListxt(const std::string &astListxt) {

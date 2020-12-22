@@ -5,6 +5,7 @@
 
 #include "ASTManager.h"
 #include "ConfigManager.h"
+#include "Handle1AST.h"
 
 #include <llvm-c/Target.h>
 #include <llvm/Support/Error.h>
@@ -80,6 +81,18 @@ int main(int argc, char *argv[]) {
   } else if (argc == 3) {
     ConfigManager cfgmgr(argv[1], argv[2]);
     cfgmgr.dump();
+  } else if (argc == 4) {
+    ASTManager manager(argv[1]);
+    ConfigManager cfgmgr(argv[2], argv[3]);
+    for (auto &au : manager.getAstUnits()) {
+      llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
+      TUAnalyzer analyzer(au, cfgmgr);
+      analyzer.check();
+      std::string resultfilename = au->getASTFileName().str() + ".txt";
+      std::ofstream outfile(resultfilename);
+      analyzer.dump(outfile);
+      outfile.close();
+    }
   } else {
     llvm::errs() << "TODO\n";
   }
