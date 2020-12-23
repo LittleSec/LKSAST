@@ -75,6 +75,7 @@ public:
                      AccessType at);
   void setReadAccessType();
   void setWriteAccessType();
+  std::string printToString() const;
   bool operator<(const ResourceAccessNode &ref) const;
   bool operator==(const ResourceAccessNode &ref) const;
   operator bool() { return restype != NULLResourceNode; };

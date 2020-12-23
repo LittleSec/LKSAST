@@ -102,6 +102,26 @@ void ResourceAccessNode::setWriteAccessType() {
   }
 }
 
+std::string ResourceAccessNode::printToString() const {
+  if (restype == NULLResourceNode) {
+    return "<NULL>";
+  } else {
+    std::string accstr;
+    switch (accType) {
+    case Read:
+      accstr = "[R] ";
+      break;
+    case Write:
+      accstr = "[W] ";
+      break;
+    case RW:
+      accstr = "[R/W] ";
+      break;
+    }
+    return accstr + name;
+  }
+}
+
 bool ResourceAccessNode::operator<(const ResourceAccessNode &ref) const {
   if (name < ref.name) {
     return true;
@@ -177,10 +197,7 @@ CGNode GetPointeeWithILE(Expr *initExpr, FunctionDecl *scopeFD,
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(initExpr)) {
     if (ValueDecl *ValueD = DRE->getDecl()) {
       if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
-        if (VD->isFunctionOrFunctionTemplate()) {
-          llvm::errs() << "[May not reach here] VarDecl is a Function?\n";
-          initExpr->getExprLoc().dump(_SM);
-        } else if (VD->getType()->isFunctionPointerType()) {
+        if (VD->getType()->isFunctionPointerType()) {
           if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(ValueD)) {
             assert(scopeFD != nullptr);
             CGNode tmp(scopeFD->getName().str(), PVD->getFunctionScopeIndex(),
@@ -400,11 +417,7 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (ValueDecl *ValueD = DRE->getDecl()) {
       if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
-        if (VD->isFunctionOrFunctionTemplate()) {
-          llvm::errs() << "[May not reach here] VarDecl is a Function?\n";
-          E->getExprLoc().dump(_SM);
-          VD->getAsFunction()->dump();
-        } else if (VD->getType()->isFunctionPointerType()) {
+        if (VD->getType()->isFunctionPointerType()) {
           if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(ValueD)) {
             CGNode pointee(_Result.funcname, PVD->getFunctionScopeIndex(),
                            PVD->getLocation().printToString(
@@ -618,10 +631,7 @@ CGNode FunctionAnalyzer::getPointee(Expr *rhs) {
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(rhs)) {
     if (ValueDecl *ValueD = DRE->getDecl()) {
       if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
-        if (VD->isFunctionOrFunctionTemplate()) {
-          llvm::errs() << "[May not reach here] VarDecl is a Function?\n";
-          rhs->getExprLoc().dump(_SM);
-        } else if (VD->getType()->isFunctionPointerType()) {
+        if (VD->getType()->isFunctionPointerType()) {
           if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(ValueD)) {
             CGNode tmp(_FD->getName().str(), PVD->getFunctionScopeIndex(),
                        PVD->getLocation().printToString(_SM));
@@ -767,8 +777,6 @@ void FunctionAnalyzer::AnalysisWithCFG() {
             AnalysisWriteStmt(lhs);
             AnalysisReadStmt(rhs);
           } else {
-            // llvm::errs() << "BinOp is: [ " << BO->getOpcodeStr() << " ] In "
-            //              << BO->getExprLoc().printToString(_SM) << "\n";
             AnalysisReadStmt(const_cast<Stmt *>(stmt));
           }
         } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(stmt)) {
@@ -871,6 +879,27 @@ bool TUAnalyzer::VisitInitListExpr(InitListExpr *ILE) {
   return true;
 }
 
+/*
+Need to analysis function pointer:
+  |- Array gifconf_list --> [register_gifconf 1, ]
+  |- struct pernet_operations.init --> [netdev_init, ]
+  `-<EOF>
+Function Info:
+  |- function name 1:
+  |    |- callgraph:
+  |    |    |- struct net_device_ops.ndo_do_ioctl
+  |    |    |- memcpy
+  |    |    |- ...
+  |    |    `-<End of callgraph>
+  |    |- resource:
+  |    |    |- struct net_device.netdev_ops
+  |    |    |- ...
+  |    |    `-<End of resource>
+  |    `-<End of Function: function name 1>
+  |- ...
+  |- ...
+  `-<EOF>
+*/
 void TUAnalyzer::dump(std::ofstream &of) {
   of << "Need to analysis function pointer:\n";
   for (auto &info : _Need2AnalysisPtrInfo) {
