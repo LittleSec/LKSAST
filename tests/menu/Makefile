@@ -26,7 +26,7 @@ all:	$(OBJS) $(HELLP_OBJ) $(ASTS)
 	$(shell ls $(ASTS) | sed "s:^:$(PWD)/: " > astList.txt)
 
 %.o %.ast: %.c
-	$(CC) $(CC_FLAGS) $<
+	$(CC) $(CC_FLAGS) -o $@ $<
 	$(CLANG) $(CLANG_FLAGS) $<
 
 clean:
