@@ -73,6 +73,72 @@ void dumpPtrInfo(std::ofstream &of, const Ptr2InfoType &ptrinfo,
   }
 }
 
+// src, not &src
+void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
+  tgr.clear();
+  unsigned int cnt = 0;
+  bool isAllDirect;
+  while (!src.empty()) {
+    if (cnt > 20) {
+      break;
+    }
+    // insert tgr and remove src
+    for (Ptr2InfoType::iterator info = src.begin(), ed = src.end();
+         info != ed;) {
+      CGsType &curptees = info->second;
+      isAllDirect = true;
+      for (auto &ptee : curptees) {
+        if (ptee.type != ptee.DirectCall) {
+          isAllDirect = false;
+          break;
+        }
+      }
+      if (isAllDirect) {
+        tgr.insert(*info);
+        info = src.erase(info);
+      } else {
+        info++;
+      }
+    }
+    llvm::errs() << "iter " << cnt++ << ", src.size() = " << src.size() << "\n";
+    // update src
+    for (auto &info : src) {
+      CGsType &curptees = info.second;
+      CGsType shouldbeinsert;
+      for (CGsType::iterator ptee = curptees.begin(), cged = curptees.end();
+           ptee != cged;) {
+        if (ptee->type != ptee->DirectCall) {
+          auto findptees = tgr.find(*ptee);
+          if (findptees != tgr.end()) {
+            for (auto &n : findptees->second) {
+              shouldbeinsert.insert(n);
+            }
+            ptee = curptees.erase(ptee);
+          } else {
+            ptee++;
+          }
+        } else {
+          ptee++;
+        }
+      }
+      for (auto &insertptee : shouldbeinsert) {
+        curptees.insert(insertptee);
+      }
+    }
+  } // while (!src.empty())
+  if (!src.empty()) {
+    llvm::errs() << "[!] End iteration to analysis, these func ptrs have not "
+                    "actually ptees:\n";
+    for (auto &info : src) {
+      llvm::errs() << info.first.name << " --> ";
+      for (auto &ptee : info.second) {
+        llvm::errs() << ptee.name << " # ";
+      }
+      llvm::errs() << "\n";
+    }
+  }
+}
+
 int main(int argc, char *argv[]) {
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmParser();
@@ -119,6 +185,12 @@ int main(int argc, char *argv[]) {
     }
     std::ofstream outfile("Need2AnalysisPtrInfo.txt");
     dumpPtrInfo(outfile, Need2AnalysisPtrInfo, true);
+    outfile.close();
+
+    Ptr2InfoType PurePtrInfo;
+    analysisPtrInfo(Need2AnalysisPtrInfo, PurePtrInfo);
+    outfile.open("PtrInfo.txt");
+    dumpPtrInfo(outfile, PurePtrInfo, true);
     outfile.close();
   } else {
     llvm::errs() << "TODO\n";
