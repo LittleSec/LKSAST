@@ -5,6 +5,7 @@
 
 #include "ASTManager.h"
 #include "ConfigManager.h"
+#include "DumpHelper.h"
 #include "Handle1AST.h"
 
 #include <llvm-c/Target.h>
@@ -48,29 +49,6 @@ int testJson(std::vector<int> vec, const std::string &s) {
   std::cout << std::setw(4) << j2 << std::endl;
 
   return 0;
-}
-
-void dumpPtrInfo(std::ofstream &of, const Ptr2InfoType &ptrinfo,
-                 bool ispy = false) {
-  if (ispy) {
-    for (auto &info : ptrinfo) {
-      of << info.first.name << " --> ";
-      for (auto &ptee : info.second) {
-        of << ptee.name << " # ";
-      }
-      of << "\n";
-    }
-  } else {
-    of << "Need to analysis function pointer:\n";
-    for (auto &info : ptrinfo) {
-      of << "  |- " << info.first.name << " --> [";
-      for (auto &ptee : info.second) {
-        of << ptee.name << ", ";
-      }
-      of << "]\n";
-    }
-    of << "  `-<EOF>\n";
-  }
 }
 
 // src, not &src
@@ -184,14 +162,12 @@ int main(int argc, char *argv[]) {
       outfile.close();
     }
     std::ofstream outfile("Need2AnalysisPtrInfo.txt");
-    dumpPtrInfo(outfile, Need2AnalysisPtrInfo, true);
+    DumpPtrInfo2txt(outfile, Need2AnalysisPtrInfo, true);
     outfile.close();
 
     Ptr2InfoType PurePtrInfo;
     analysisPtrInfo(Need2AnalysisPtrInfo, PurePtrInfo);
-    outfile.open("PtrInfo.txt");
-    dumpPtrInfo(outfile, PurePtrInfo, true);
-    outfile.close();
+    DumpPtrInfo2txt("PtrInfo.txt", PurePtrInfo, true);
   } else {
     llvm::errs() << "TODO\n";
   }
