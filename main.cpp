@@ -50,6 +50,29 @@ int testJson(std::vector<int> vec, const std::string &s) {
   return 0;
 }
 
+void dumpPtrInfo(std::ofstream &of, const Ptr2InfoType &ptrinfo,
+                 bool ispy = false) {
+  if (ispy) {
+    for (auto &info : ptrinfo) {
+      of << info.first.name << " --> ";
+      for (auto &ptee : info.second) {
+        of << ptee.name << " # ";
+      }
+      of << "\n";
+    }
+  } else {
+    of << "Need to analysis function pointer:\n";
+    for (auto &info : ptrinfo) {
+      of << "  |- " << info.first.name << " --> [";
+      for (auto &ptee : info.second) {
+        of << ptee.name << ", ";
+      }
+      of << "]\n";
+    }
+    of << "  `-<EOF>\n";
+  }
+}
+
 int main(int argc, char *argv[]) {
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmParser();
@@ -84,15 +107,19 @@ int main(int argc, char *argv[]) {
   } else if (argc == 4) {
     ASTManager manager(argv[1]);
     ConfigManager cfgmgr(argv[2], argv[3]);
+    Ptr2InfoType Need2AnalysisPtrInfo;
     for (auto &au : manager.getAstUnits()) {
       llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
-      TUAnalyzer analyzer(au, cfgmgr);
+      TUAnalyzer analyzer(au, cfgmgr, Need2AnalysisPtrInfo);
       analyzer.check();
       std::string resultfilename = au->getASTFileName().str() + ".txt";
       std::ofstream outfile(resultfilename);
       analyzer.dump(outfile);
       outfile.close();
     }
+    std::ofstream outfile("Need2AnalysisPtrInfo.txt");
+    dumpPtrInfo(outfile, Need2AnalysisPtrInfo, true);
+    outfile.close();
   } else {
     llvm::errs() << "TODO\n";
   }

@@ -901,15 +901,6 @@ Function Info:
   `-<EOF>
 */
 void TUAnalyzer::dump(std::ofstream &of) {
-  of << "Need to analysis function pointer:\n";
-  for (auto &info : _Need2AnalysisPtrInfo) {
-    of << "  |- " << info.first.name << " --> [";
-    for (auto &ptee : info.second) {
-      of << ptee.name << ", ";
-    }
-    of << "]\n";
-  }
-  of << "  `-<EOF>\n";
   of << "Function Info:\n";
   for (auto &tures : TUResult) {
     of << "  |- " << tures.funcname << ":\n";

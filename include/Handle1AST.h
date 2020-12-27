@@ -85,11 +85,9 @@ public:
   };
 };
 
-using CGType = std::unordered_set<CGNode, CGNode::Hash>;
+using CGsType = std::unordered_set<CGNode, CGNode::Hash>;
 
-using Ptr2InfoType =
-    std::unordered_map<CGNode, std::unordered_set<CGNode, CGNode::Hash>,
-                       CGNode::Hash>;
+using Ptr2InfoType = std::unordered_map<CGNode, CGsType, CGNode::Hash>;
 
 // FIXME: "val1, w" != "val1, r"
 // but it can/should merge into "val1, rw"
@@ -100,7 +98,7 @@ class FunctionResult {
 public:
   std::string funcname;
   std::string declloc;
-  CGType _Callees;
+  CGsType _Callees;
   ResourcesType _Resources;
 
   FunctionResult(clang::FunctionDecl *FD);
@@ -228,11 +226,13 @@ private:
   ConfigManager &_CfgMgr;
   std::unordered_set<FunctionResult, FunctionResult::Hash> TUResult;
   // FIXME, maybe _Need2AnalysisPtrInfo belong to all TUs, not juse this TU
-  Ptr2InfoType _Need2AnalysisPtrInfo;
+  Ptr2InfoType &_Need2AnalysisPtrInfo;
 
 public:
-  TUAnalyzer(const std::unique_ptr<clang::ASTUnit> &au, ConfigManager &cfgmgr)
-      : _CfgMgr(cfgmgr), _ASTCtx(au->getASTContext()){};
+  TUAnalyzer(const std::unique_ptr<clang::ASTUnit> &au, ConfigManager &cfgmgr,
+             Ptr2InfoType &ptrinfo)
+      : _CfgMgr(cfgmgr), _ASTCtx(au->getASTContext()),
+        _Need2AnalysisPtrInfo(ptrinfo){};
 
   void check() { HandleTranslationUnit(_ASTCtx); }
   void HandleTranslationUnit(clang::ASTContext &Context) override;
