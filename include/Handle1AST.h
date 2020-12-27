@@ -46,6 +46,7 @@ public:
   CGNode(const std::string &n, size_t parmidx, const std::string &dl);
   CGNode(const std::string &structname, const std::string &fieldname,
          const std::string &dl);
+  const char *CallType2String() const;
   bool operator<(const CGNode &ref) const;
   bool operator==(const CGNode &ref) const;
   operator bool() { return type != NULLCGNode; };
@@ -76,6 +77,8 @@ public:
   void setReadAccessType();
   void setWriteAccessType();
   std::string printToString() const;
+  const char *ResourceType2String() const;
+  const char *AccessType2String() const;
   bool operator<(const ResourceAccessNode &ref) const;
   bool operator==(const ResourceAccessNode &ref) const;
   operator bool() { return restype != NULLResourceNode; };
@@ -240,6 +243,7 @@ public:
   bool VisitVarDecl(clang::VarDecl *VD);
   bool VisitInitListExpr(clang::InitListExpr *ILE);
   void dump(std::ofstream &of);
+  void dumpJSON(std::ofstream &of, bool ismin = false);
 }; // class TUAnalyzer
 
 }; // namespace lksast

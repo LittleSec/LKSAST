@@ -1,0 +1,42 @@
+{
+  "function name1": {
+    "declloc": "/path/to/main decl:nn",
+    "callgraph": [
+      {
+        "CallType": "direct",
+        "name": "func1",
+        "declloc": "/path/to/func decl:nn"
+      },
+      {
+        "CallType": "struct member",
+        "name": "struct fs, ->open, field idx",
+        "declloc": "/path/to/struct decl:mm"
+      },
+      {
+        "CallType": "func ptr array",
+        "name": "(*func[])()",
+        "declloc": "/path/to/struct decl:nn"
+      },
+      {
+        "CallType": "other(for debug)",
+        "name": "(*ptr)()",
+        "declloc": "/path/to/ptr decl:mm"
+      }
+    ],
+    "resource access": [
+      {
+        "name" : "struct task_struct->mm",
+        "ResourceType" : "StructMember",
+        "AccessType" : "W"
+      },
+      {
+        "name": "global val",
+        "ResourceType": "GlobalVal",
+        "AccessType": "R"
+      }
+    ]
+  },
+  "function name2" : {
+    
+  }
+}

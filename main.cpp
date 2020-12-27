@@ -156,9 +156,9 @@ int main(int argc, char *argv[]) {
       llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
       TUAnalyzer analyzer(au, cfgmgr, Need2AnalysisPtrInfo);
       analyzer.check();
-      std::string resultfilename = au->getASTFileName().str() + ".txt";
+      std::string resultfilename = au->getASTFileName().str() + ".json";
       std::ofstream outfile(resultfilename);
-      analyzer.dump(outfile);
+      analyzer.dumpJSON(outfile);
       outfile.close();
     }
     std::ofstream outfile("Need2AnalysisPtrInfo.txt");

@@ -1,13 +1,16 @@
+#include <iomanip>
+
+#include "Common.h"
+#include "ConfigManager.h"
 #include "Handle1AST.h"
+#include "nlohmann/json.hpp"
 
 #include <clang/AST/ASTContext.h>
 #include <clang/Analysis/CFG.h>
 #include <llvm/Support/raw_ostream.h>
 
-#include "Common.h"
-#include "ConfigManager.h"
-
 using namespace clang;
+using json = nlohmann::json;
 
 /* Data Structure */
 namespace lksast {
@@ -37,6 +40,24 @@ CGNode::CGNode(const std::string &structname, const std::string &fieldname,
     : declloc(dl) {
   type = StructMemberFunPtrCall;
   name = "struct " + structname + "." + fieldname;
+}
+
+const char *CGNode::CallType2String() const {
+  switch (type) {
+  case NULLCGNode:
+    return "NULLCGNode";
+  case DirectCall:
+    return "DirectCall";
+  case StructMemberFunPtrCall:
+    return "StructMemberFunPtrCall";
+  case ArrayFunPtrCall:
+    return "ArrayFunPtrCall";
+  case ParmFunPtrCall:
+    return "ParmFunPtrCall";
+  // case OtherCall:
+  default:
+    return "OtherCall(for debug)";
+  }
 }
 
 bool CGNode::operator<(const CGNode &ref) const {
@@ -119,6 +140,32 @@ std::string ResourceAccessNode::printToString() const {
       break;
     }
     return accstr + name;
+  }
+}
+
+const char *ResourceAccessNode::ResourceType2String() const {
+  switch (restype) {
+  case NULLResourceNode:
+    return "NULLResourceNode";
+  case StructMember:
+    return "StructMember";
+  case GlobalVal:
+    return "GlobalVal";
+  case Structure:
+    return "Structure";
+  default:
+    return "[Err]ResourceNode";
+  }
+}
+
+const char *ResourceAccessNode::AccessType2String() const {
+  switch (accType) {
+  case Read:
+    return "R";
+  case Write:
+    return "W";
+  case RW:
+    return "R/W";
   }
 }
 
@@ -918,6 +965,36 @@ void TUAnalyzer::dump(std::ofstream &of) {
   }
   of << "  `-<EOF>\n";
   of << "\n";
+}
+
+void TUAnalyzer::dumpJSON(std::ofstream &of, bool ismin) {
+  json topj;
+  for (auto &tures : TUResult) {
+    json funj;
+    if (!ismin) {
+      funj["declloc"] = tures.declloc;
+    }
+    funj["callgraph"] = json::array();
+    for (auto &cgn : tures._Callees) {
+      json cgnodej;
+      cgnodej["CallType"] = cgn.CallType2String();
+      cgnodej["name"] = cgn.name;
+      if (!ismin) {
+        cgnodej["declloc"] = cgn.declloc;
+      }
+      funj["callgraph"].push_back(cgnodej);
+    }
+    funj["resource access"] = json::array();
+    for (auto &reso : tures._Resources) {
+      json resj;
+      resj["name"] = reso.name;
+      resj["ResourceType"] = reso.ResourceType2String();
+      resj["AccessType"] = reso.AccessType2String();
+      funj["resource access"].push_back(resj);
+    }
+    topj[tures.funcname] = funj;
+  }
+  of << std::setw(2) << topj;
 }
 
 #endif /* TUAnalyzer_METHODS */
