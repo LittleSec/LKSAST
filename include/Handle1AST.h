@@ -33,8 +33,10 @@ public:
     NULLCGNode,             // cast CGNode into bool
     DirectCall,             // cg.add("funname")
     StructMemberFunPtrCall, // cg.add("struct fs.open")
-    ArrayFunPtrCall,        // cg.add("arrname")
+    ArrayFunPtrCall,        // cg.add("Array arrname")
     ParmFunPtrCall,         // cg.add("caller 0") // 0 parm is funptr
+    GlobalVarFunPtrCall,    // cg.add("GlobalVar varname")
+    LocalVarFunPtrCall,     // cg.add("funname varname")
     OtherCall
   };
   CallType type;
@@ -44,7 +46,7 @@ public:
   CGNode() : type(NULLCGNode){};
   CGNode(CallType t, const std::string &n, const std::string &dl);
   CGNode(const std::string &n, size_t parmidx, const std::string &dl);
-  CGNode(const std::string &structname, const std::string &fieldname,
+  CGNode(CallType t, const std::string &n1, const std::string &n2,
          const std::string &dl);
   const char *CallType2String() const;
   bool operator<(const CGNode &ref) const;

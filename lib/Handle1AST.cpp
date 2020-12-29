@@ -22,10 +22,16 @@ namespace lksast {
 
 CGNode::CGNode(CallType t, const std::string &n, const std::string &dl)
     : type(t), declloc(dl) {
-  if (t == ArrayFunPtrCall) {
+  switch (t) {
+  case ArrayFunPtrCall:
     name = "Array " + n;
-  } else {
+    break;
+  case GlobalVarFunPtrCall:
+    name = "GlobalVar " + n;
+    break;
+  default:
     name = n;
+    break;
   }
 }
 
@@ -35,11 +41,20 @@ CGNode::CGNode(const std::string &n, size_t parmidx, const std::string &dl)
   name = n + " " + std::to_string(parmidx);
 }
 
-CGNode::CGNode(const std::string &structname, const std::string &fieldname,
+CGNode::CGNode(CallType t, const std::string &n1, const std::string &n2,
                const std::string &dl)
-    : declloc(dl) {
-  type = StructMemberFunPtrCall;
-  name = "struct " + structname + "." + fieldname;
+    : type(t), declloc(dl) {
+  switch (t) {
+  case StructMemberFunPtrCall:
+    name = "struct " + n1 + "." + n2;
+    break;
+  case LocalVarFunPtrCall:
+    name = n1 + " " + n2;
+    break;
+  default:
+    llvm::errs() << "[Err] Call CGNode() Err!\n";
+    break;
+  }
 }
 
 const char *CGNode::CallType2String() const {
@@ -54,6 +69,10 @@ const char *CGNode::CallType2String() const {
     return "ArrayFunPtrCall";
   case ParmFunPtrCall:
     return "ParmFunPtrCall";
+  case GlobalVarFunPtrCall:
+    return "GlobalVarFunPtrCall";
+  case LocalVarFunPtrCall:
+    return "LocalVarFunPtrCall";
   // case OtherCall:
   default:
     return "OtherCall(for debug)";
@@ -239,7 +258,7 @@ namespace lksast {
 
 CGNode GetPointeeWithILE(Expr *initExpr, FunctionDecl *scopeFD,
                          SourceManager &_SM) {
-  initExpr = initExpr->IgnoreImplicit()->IgnoreParenImpCasts();
+  initExpr = initExpr->IgnoreParenCasts();
   CGNode nullcgnode;
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(initExpr)) {
     if (ValueDecl *ValueD = DRE->getDecl()) {
@@ -300,7 +319,8 @@ void AnalysisPtrInfoWithInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
         if (ptee) {
           /* Note: 1 */
           // assert(fdit->getType()->isFunctionPointerType());
-          CGNode pter = CGNode(rd->getName().str(), fdit->getName().str(),
+          CGNode pter = CGNode(CGNode::CallType::StructMemberFunPtrCall,
+                               rd->getName().str(), fdit->getName().str(),
                                fdit->getLocation().printToString(sm));
           _Need2AnalysisPtrInfo[pter].insert(ptee);
         }
@@ -311,7 +331,7 @@ void AnalysisPtrInfoWithInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
 
 ValueDecl *GetSimpleArrayDecl(Expr *E, SourceManager &_SM) {
   if (ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
-    if (Expr *arrBaseExpr = ASE->getBase()->IgnoreImpCasts()) {
+    if (Expr *arrBaseExpr = ASE->getBase()->IgnoreParenCasts()) {
       if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(arrBaseExpr)) {
         // DRE->getDecl()->dump();
         return DRE->getDecl();
@@ -320,7 +340,7 @@ ValueDecl *GetSimpleArrayDecl(Expr *E, SourceManager &_SM) {
         arrBaseExpr->getExprLoc().dump(_SM);
       }
     } else {
-      llvm::errs() << "[nullptr] ASE->getBase()->IgnoreImpCasts()\n";
+      llvm::errs() << "[nullptr] ASE->getBase()->IgnoreParenCasts()\n";
       ASE->getExprLoc().dump(_SM);
     }
   } else {
@@ -372,7 +392,7 @@ void StmtLhsRhsAnalyzer::AnalysisResourceInVD(VarDecl *VD) {
 // TODO: check again
 void StmtLhsRhsAnalyzer::AnalysisPtrInfoInVD(VarDecl *VD) {
   if (Expr *E = VD->getInit()) {
-    if (InitListExpr *ILE = dyn_cast<InitListExpr>(E->IgnoreParenImpCasts())) {
+    if (InitListExpr *ILE = dyn_cast<InitListExpr>(E->IgnoreParenCasts())) {
       AnalysisPtrInfoWithInitListExpr(ILE, _ScopeFD, _Need2AnalysisPtrInfo,
                                       _CfgMgr);
     }
@@ -388,6 +408,7 @@ void StmtLhsRhsAnalyzer::VisitDeclStmt(DeclStmt *DS) {
   }
 }
 
+// TODO: support LocalVarFunPtrCall
 void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
   ValueDecl *valuedecl = DRE->getDecl();
   if (const VarDecl *VD = dyn_cast<VarDecl>(valuedecl)) {
@@ -454,13 +475,13 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
   if (E == nullptr) {
     return;
   }
-  E = E->IgnoreImplicit()->IgnoreParenImpCasts();
+  E = E->IgnoreParenCasts();
   // eg. call func1(&fun) ==> `&` is an UO
   if (UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
     E = UO->getSubExpr();
   }
   // -i ==> i ==> shit...
-  E = E->IgnoreImplicit()->IgnoreParenImpCasts();
+  E = E->IgnoreParenCasts();
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (ValueDecl *ValueD = DRE->getDecl()) {
       if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
@@ -504,20 +525,19 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
     } // if (VarDecl *VD = dyn_cast<VarDecl>(ValueD))
   } else {
     switch (E->getStmtClass()) {
-    case Stmt::CStyleCastExprClass:            // (unsigned)a
     case Stmt::UnaryExprOrTypeTraitExprClass:  // sizeof
     case Stmt::BinaryOperatorClass:            // a+b
     case Stmt::UnaryOperatorClass:             // !b
+    case Stmt::CompoundAssignOperatorClass:    // a+=1
     case Stmt::IntegerLiteralClass:            // 1
     case Stmt::CharacterLiteralClass:          // 'a'
     case Stmt::StringLiteralClass:             // "str"
     case Stmt::CompoundLiteralExprClass:       // [c99] struct, (a_t){1}
-    case Stmt::ArraySubscriptExprClass:        // a[1]
-    case Stmt::ParenExprClass:                 // (a+b)
+    case Stmt::ArraySubscriptExprClass:        // TODO: a[1]
     case Stmt::CallExprClass:                  //
-    case Stmt::MemberExprClass:                // task->pid
+    case Stmt::MemberExprClass:                // TODO: task->pid
     case Stmt::ConditionalOperatorClass:       // a ? 1 : 2
-    case Stmt::BinaryConditionalOperatorClass: //[gun c ext] x ?: y
+    case Stmt::BinaryConditionalOperatorClass: // [gun c ext] x ?: y
     case Stmt::PredefinedExprClass:            // [c99] __func__
     case Stmt::OffsetOfExprClass:              // [c99] offsetof(record, member)
     case Stmt::VAArgExprClass:                 // __va_list_tag
@@ -530,6 +550,7 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
       llvm::errs() << "[Unknown] CallExpr Arg StmtClass\n";
       E->getExprLoc().dump(_SM);
       E->dump();
+      exit(1);
       break;
     }
   }
@@ -573,7 +594,7 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
     if (calleeD == nullptr) { // fun ptr arr
       // eg. call mycal[1](a, b); which mycal is fun ptr array:
       // int (*mycal[])(int, int) = {mysub, mymod, mydivi};
-      if (Expr *E = CE->getCallee()->IgnoreImpCasts()) {
+      if (Expr *E = CE->getCallee()->IgnoreParenCasts()) {
         if (ValueDecl *valuedecl = GetSimpleArrayDecl(E, _SM)) {
           if (valuedecl->getKind() == Decl::Var) {
             QualType Ty = valuedecl->getType();
@@ -594,6 +615,17 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
                          << valuedecl->getDeclKindName() << " ]\n";
           }
         } else {
+          // TODO
+          /* Note:
+           * May comes from Parm and it is also NOT a FunctionPointerType,
+           * because C lang can cast a pointer type,
+           * normally, in this situation, parm maybe a (void*)
+           * getCallee() =>
+           * |-ParenExpr
+           * | `-CStyleCastExpr
+           * |   `-ImplicitCastExpr
+           * |     `-DeclRefExpr => getDecl()==ParmVar
+           * */
           llvm::errs() << "[!] Unknown getCallee\n";
         }
       } else {
@@ -609,7 +641,8 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
         RecordDecl *RD = FieldD->getParent();
         if (RD->isStruct()) {
           string srcloc = FieldD->getLocation().printToString(_SM);
-          CGNode tmp(RD->getName().str(), FieldD->getName().str(), srcloc);
+          CGNode tmp(CGNode::CallType::StructMemberFunPtrCall,
+                     RD->getName().str(), FieldD->getName().str(), srcloc);
           _Result._Callees.insert(tmp);
         } else {
           llvm::errs() << "[!] FieldDecl is not a Structure\n";
@@ -671,9 +704,12 @@ void FunctionAnalyzer::AnalysisParms() {
  *     是则加入指向信息lhs.insert(FD)，不是则忽略
  * 若rhs是PVD，则分析PVD是不是函数指针，
  *     是则加入指向信息lhs.insert("_FDname 0")，不是则忽略
+ * // TODO
+ * 其实还有一种可以处理的情况，rhs是个普通的指针被强转成函数指针后，
+ * 赋值给lhs，如果lhs是函数指针的情况下，这种情况应该实现识别
  */
 CGNode FunctionAnalyzer::getPointee(Expr *rhs) {
-  rhs = rhs->IgnoreParenImpCasts();
+  rhs = rhs->IgnoreParenCasts();
   CGNode nullcgnode;
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(rhs)) {
     if (ValueDecl *ValueD = DRE->getDecl()) {
@@ -716,7 +752,7 @@ CGNode FunctionAnalyzer::getPointee(Expr *rhs) {
 
 CGNode FunctionAnalyzer::getPointer(Expr *lhs) {
   CGNode nullcgnode;
-  lhs = lhs->IgnoreParenImpCasts();
+  lhs = lhs->IgnoreParenCasts();
   if (MemberExpr *ME = dyn_cast<MemberExpr>(lhs)) {
     ValueDecl *memdecl = ME->getMemberDecl();
     if (Decl::Field == memdecl->getKind()) {
@@ -730,8 +766,8 @@ CGNode FunctionAnalyzer::getPointer(Expr *lhs) {
       }
       /* Note: 1 */
       // assert(fd->getType()->isFunctionPointerType());
-      CGNode tmp(rd->getName().str(), fd->getName().str(),
-                 fd->getLocation().printToString(_SM));
+      CGNode tmp(CGNode::CallType::StructMemberFunPtrCall, rd->getName().str(),
+                 fd->getName().str(), fd->getLocation().printToString(_SM));
       return tmp;
     } else {
       llvm::errs() << "[Unknown] ME->getMemberDecl() is not a FieldDecl?\n";
@@ -884,10 +920,16 @@ bool TUAnalyzer::TraverseFunctionDecl(FunctionDecl *FD) {
   return true;
 }
 
+// TODO: support GlobalVarFunPtrCall
 bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
   SourceManager &sm = VD->getASTContext().getSourceManager();
   /* handle func ptr array InitListExpr */
   QualType Ty = VD->getType();
+  if (Ty->isFunctionPointerType()) {
+    if (Expr *E = VD->getInit()) {
+      // TODO: cast?
+    }
+  }
   if (!(Ty->isArrayType())) {
     return true;
   }
@@ -901,7 +943,7 @@ bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
   }
   CGNode pter = CGNode(CGNode::CallType::ArrayFunPtrCall, VD->getName().str(),
                        VD->getLocation().printToString(sm));
-  Expr *E = VD->getInit()->IgnoreParenImpCasts();
+  Expr *E = VD->getInit()->IgnoreParenCasts();
   if (InitListExpr *ILE = dyn_cast<InitListExpr>(E)) {
     for (unsigned int i = 0; i < ILE->getNumInits(); i++) {
       Expr *IE = ILE->getInit(i);
