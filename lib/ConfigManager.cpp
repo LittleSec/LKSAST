@@ -7,21 +7,108 @@
 
 using namespace lksast;
 
-ConfigManager::ConfigManager(const string &extdef2src_file,
-                             const string &src2ast_file) {
-  load_extdef2src_map(extdef2src_file);
-  load_src2ast_map(src2ast_file);
-  ignorePath.push_back("/usr/include");
-  ignorePath.push_back("arch/x86/include/asm/string.h");
-  ignorePath.push_back("include/uapi/linux/byteorder");
-  ignorePath.push_back("include/linux/byteorder");
-  ignorePath.push_back("linux/kernel.h");
+#define JSON_FORMAT_ERR_CODE(errno)                                            \
+  do {                                                                         \
+    llvm::errs() << "[Err] Format Err in Config Json!\n";                      \
+    llvm::errs() << "      More information see README.md\n";                  \
+    exit(errno);                                                               \
+  } while (false)
+
+ConfigManager::ConfigManager(const string &config_file) {
+  std::ifstream infile(config_file);
+  infile >> configJson;
+  HandleCfgJson();
+  const std::string &extdef2src_file =
+      configJson["Input"]["ExtdefMapping"].get<std::string>();
+  const std::string &src2ast_file =
+      configJson["Input"]["Src2Ast"].get<std::string>();
+  if (extdef2src_file != "") {
+    load_extdef2src_map(extdef2src_file);
+  }
+  if (src2ast_file != "") {
+    load_src2ast_map(src2ast_file);
+  }
+  infile.close();
+}
+
+void ConfigManager::HandleCfgJson() {
+  if (configJson.contains("Input") && configJson.contains("Output")) {
+    json &inputJ = configJson["Input"];
+    if (inputJ.contains("AstList")) {
+      json &outputJ = configJson["Output"];
+      HandleInputCfg(inputJ);
+      HandleOutputCfg(outputJ);
+      HandleRunningCfg();
+    } else {
+      JSON_FORMAT_ERR_CODE(1);
+    }
+  } else {
+    JSON_FORMAT_ERR_CODE(1);
+  }
+}
+
+void ConfigManager::HandleInputCfg(json &inj) {
+  if (!inj.contains("ExtdefMapping")) {
+    inj["ExtdefMapping"] = string("");
+  }
+  if (!inj.contains("Src2Ast")) {
+    inj["Src2Ast"] = string("");
+  }
+}
+
+void ConfigManager::HandleOutputCfg(json &outj) {
+  if (!outj.contains("Fun2Json")) {
+    outj["Fun2Json"] = "fun2json.txt";
+  }
+  if (!outj.contains("Need2AnalysisPtrInfo")) {
+    outj["Need2AnalysisPtrInfo"] = "Need2AnalysisPtrInfo.txt";
+  }
+  if (!outj.contains("HasAnalysisPtrInfo")) {
+    outj["HasAnalysisPtrInfo"] = "PtrInfo.txt";
+  }
+}
+
+void ConfigManager::HandleRunningCfg() {
+  if (configJson.contains("Running")) {
+    json &runJ = configJson["Running"];
+    if (runJ.contains("IgnorePaths")) {
+      for (auto &p : runJ["IgnorePaths"]) {
+        ignorePath.push_back(p.get<std::string>());
+      }
+    } else { // TODO: maybe unused
+      runJ["IgnorePaths"] = json::array();
+    }
+  } else {
+    json tmpj;
+    tmpj["IgnorePaths"] = json::array();
+    configJson["Running"] = tmpj;
+  }
 }
 
 ConfigManager::~ConfigManager() {
   src_set.clear();
   src2ast_map.clear();
   extdef2src_map.clear(); // shared_ptr maybe err?
+  configJson.clear();
+}
+
+/*************************
+ * Maybe Unused any more
+ *************************/
+/* FIXME:
+ * temporary just support x86
+ */
+bool ConfigManager::isSyscall(const string &funcname) {
+  /*
+  if (funcname.find("__x64_sys_") == 0 || funcname.find("__ia32_sys_") == 0 ||
+      funcname.find("__ia32_compat_sys_") == 0 ||
+      funcname.find("__se_sys_") == 0) {
+  */
+  if (funcname.find("__x64_sys_") == 0) {
+    return true;
+  } else {
+    return false;
+  }
 }
 
 /*
@@ -42,11 +129,6 @@ int ConfigManager::InsertDefSrcAst(const string &defname, const string &srcfn,
     // src2ast_map[*fn_shareptr] = astfn;
   }
   src2ast_map[srcfn] = astfn;
-  return 0;
-}
-
-int ConfigManager::UpdateConfigIntoFile() {
-  llvm::errs() << "TODO: ConfigManager::UpdateConfigIntoFile()\n";
   return 0;
 }
 
