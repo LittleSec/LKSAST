@@ -11,7 +11,7 @@
 
 using json = nlohmann::json;
 
-int testJson(std::vector<int> vec, const std::string &s) {
+json testJson(const std::vector<int> &vec, const std::string &s) {
   // create an empty structure (null)
   json j;
   // add a number that is stored as double (note the implicit conversion of j to
@@ -29,7 +29,7 @@ int testJson(std::vector<int> vec, const std::string &s) {
   j["list"] = {1, 0, 2};
   // add another object (using an initializer list of pairs)
   j["object"] = {{"currency", "USD"}, {"value", 42.99}};
-  std::cout << std::setw(4) << j << std::endl;
+  std::cout << std::setw(2) << j << std::endl;
 
   // instead, you could also write (which looks very similar to the JSON above)
   json j2 = {{"pi", 3.141},
@@ -39,10 +39,16 @@ int testJson(std::vector<int> vec, const std::string &s) {
              {"answer", {{"everything", 42}}},
              {"object", {{"currency", "USD"}, {"value", 42.99}}}};
   // j2["list"] = vec;
-  std::cout << std::setw(4) << j2 << std::endl;
+  std::cout << std::setw(2) << j2 << std::endl;
 
   return 0;
 }
 
-// testJson({10, 30, 20}, ts);
+int main() {
+  json j = testJson({10, 30, 20}, ts);
+  std::ofstream of("test.json");
+  of << j;
+  of.close();
+  return 0;
+}
 ```

@@ -1,0 +1,21 @@
+{
+  "Input" : {
+    "AstList": "/abspath/to/linux-5.8/astList.txt",
+    "ExtdefMapping" : "/abspath/to/Downloads/linux-5.8/extdef_mapping.txt",
+    "Src2Ast" : "/abspath/to/Downloads/linux-5.8/src2ast.txt"
+  },
+  "Output" : {
+    "Fun2Json" : "fun2json.txt",
+    "Need2AnalysisPtrInfo": "Need2AnalysisPtrInfo.txt",
+    "HasAnalysisPtrInfo" : "PtrInfo.txt"
+  },
+  "Running" : {
+    "IgnorePaths" : [
+      "/usr/include",
+      "arch/x86/include/asm/string.h",
+      "include/uapi/linux/byteorder",
+      "include/linux/byteorder",
+      "linux/kernel.h"
+    ]
+  }
+}
