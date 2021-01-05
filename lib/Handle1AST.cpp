@@ -256,47 +256,187 @@ size_t FunctionResult::Hash::operator()(const FunctionResult &n) const {
 /* Helper Function */
 namespace lksast {
 
-CGNode GetPointeeWithILE(Expr *initExpr, FunctionDecl *scopeFD,
-                         SourceManager &_SM) {
-  initExpr = initExpr->IgnoreParenCasts();
-  CGNode nullcgnode;
-  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(initExpr)) {
-    if (ValueDecl *ValueD = DRE->getDecl()) {
-      if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
-        if (VD->getType()->isFunctionPointerType()) {
-          if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(ValueD)) {
-            assert(scopeFD != nullptr);
-            CGNode tmp(scopeFD->getName().str(), PVD->getFunctionScopeIndex(),
-                       PVD->getLocation().printToString(_SM));
-            return tmp;
-          } else {
-            llvm::errs() << "[Unknown] initExpr is a FunctionPointerType "
-                            "but not from ParmVar\n";
-            initExpr->getExprLoc().dump(_SM);
-          } // if VD is ParmVarDecl
-        } else {
-          /* Note: 2 */
-          ;
-        } // end analysis VarDecl
-      } else if (FunctionDecl *FD = dyn_cast<FunctionDecl>(ValueD)) {
-        CGNode tmp(CGNode::CallType::DirectCall, FD->getName().str(),
-                   FD->getLocation().printToString(_SM));
-        return tmp;
-      } else {
-        /* Note: 3 */
-        // initExpr is not a function
-      } // cast ValueDecl into detail Decl
-    } else {
-      llvm::errs() << "[nullptr] initExpr DRE->getDecl()\n";
-      DRE->getExprLoc().dump(_SM);
-    } // if (VarDecl *VD = dyn_cast<VarDecl>(ValueD))
+CGNode FunPtrExtractor::FromExpr(Expr *E, FunctionDecl *scopeFD,
+                                 bool shouldCheck) {
+  if (E == nullptr) {
+    return _nullcgnode;
   }
-  return nullcgnode;
+  E = E->IgnoreParenCasts();
+  /* Note:
+   * CE->getCalleeDecl == CE->getCallee()->getReferencedDeclOfCallee()
+   * clang/lib/AST/Expr.cpp#getReferencedDeclOfCallee()
+   * getReferencedDeclOfCallee() think about both c cpp,
+   * here just think about c,
+   * so it does not need refer to the code of getReferencedDeclOfCallee()
+   */
+  // eg. call func1(&fun) ==> `&` is an UO
+  if (UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
+    E = UO->getSubExpr()->IgnoreParenCasts();
+  }
+  /* End of copy */
+  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
+    // local: parm, funcptr val, func
+    // global: funcptr val, func
+    return FromDeclRefExpr(DRE, scopeFD, shouldCheck);
+  } else if (MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+    return FromMemberExpr(ME, shouldCheck);
+  } else if (ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    return FromArraySubscriptExpr(ASE, shouldCheck);
+  } else {
+    // llvm::errs() << "[unknown][FunPtrExtractor] StmtClassName: "
+    //              << E->getStmtClassName() << "\n";
+    // E->getExprLoc().dump(_SM);
+    return _nullcgnode;
+  }
 }
 
-void AnalysisPtrInfoWithInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
-                                     Ptr2InfoType &_Need2AnalysisPtrInfo,
-                                     ConfigManager &_CfgMgr) {
+CGNode FunPtrExtractor::FromMemberExpr(MemberExpr *ME, bool shouldCheck) {
+  if (ME == nullptr) {
+    return _nullcgnode;
+  }
+  ValueDecl *memdecl = ME->getMemberDecl();
+  // TODO: anonymous Struct or Union
+  if (Decl::Field == memdecl->getKind()) {
+    FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
+    assert(fd != nullptr);
+    RecordDecl *rd = fd->getParent();
+    if (!rd->isStruct()) {
+      // llvm::errs() << "[Unknown][MemberExpr] RecordDecl is not a
+      // Structure\n"; rd->getLocation().dump(_SM);
+      return _nullcgnode;
+    }
+    QualType Ty = fd->getType();
+    if (Ty->isPointerType()) {
+      CGNode tmp(CGNode::CallType::StructMemberFunPtrCall, rd->getName().str(),
+                 fd->getName().str(), fd->getLocation().printToString(_SM));
+      if (shouldCheck) {
+        if (Ty->isFunctionPointerType()) {
+          return tmp;
+        }
+      } else {
+        return tmp;
+      }
+    }
+  } else {
+    llvm::errs() << "[Unknown] ME->getMemberDecl() is not a FieldDecl?\n";
+    memdecl->getLocation().dump(_SM);
+  }
+  return _nullcgnode;
+}
+
+CGNode FunPtrExtractor::FromArraySubscriptExpr(ArraySubscriptExpr *ASE,
+                                               bool shouldCheck) {
+  if (ASE == nullptr) {
+    return _nullcgnode;
+  }
+  Expr *arrBaseExpr = ASE->getBase()->IgnoreParenCasts();
+  if (arrBaseExpr == nullptr) {
+    llvm::errs() << "[nullptr] ASE->getBase()->IgnoreParenCasts()\n";
+    ASE->getExprLoc().dump(_SM);
+    return _nullcgnode;
+  }
+  DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(arrBaseExpr);
+  if (DRE == nullptr) {
+    // llvm::errs() << "[Not Support] Array base is NOT a DeclRefExpr\n";
+    // arrBaseExpr->getExprLoc().dump(_SM);
+    return _nullcgnode;
+  }
+  ValueDecl *valuedecl = DRE->getDecl();
+  if (valuedecl == nullptr) {
+    llvm::errs() << "[nullptr] DRE->getDecl()\n";
+    DRE->getLocation().dump(_SM);
+  } else if (valuedecl->getKind() == Decl::Var) {
+    QualType Ty = valuedecl->getType();
+    const clang::Type *EleTy = Ty->getPointeeOrArrayElementType();
+    // if (EleTy == nullptr) {
+    //   valuedecl->dump();
+    //   exit(1);
+    // }
+    if (EleTy->isPointerType()) {
+      CGNode tmp(CGNode::CallType::ArrayFunPtrCall, valuedecl->getName().str(),
+                 valuedecl->getLocation().printToString(_SM));
+      if (shouldCheck) {
+        if (EleTy->isFunctionPointerType()) {
+          return tmp;
+        }
+      } else {
+        return tmp;
+      }
+    }
+  } else {
+    if (!shouldCheck) {
+      llvm::errs() << "[Unknown][ASE] Array base Decl\n";
+      valuedecl->getLocation().dump(_SM);
+    } else {
+      // ignore logging
+    }
+  }
+  return _nullcgnode;
+}
+
+CGNode FunPtrExtractor::EmitCGNodeFromVD(VarDecl *VD, SourceManager &_SM,
+                                         FunctionDecl *scopeFD) {
+  CGNode tmp;
+  if (VD->isLocalVarDeclOrParm()) {
+    if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(VD)) {
+      tmp = CGNode(scopeFD->getName().str(), PVD->getFunctionScopeIndex(),
+                   PVD->getLocation().printToString(_SM));
+    } else {
+      tmp =
+          CGNode(CGNode::CallType::LocalVarFunPtrCall, scopeFD->getName().str(),
+                 VD->getName().str(), VD->getLocation().printToString(_SM));
+    }
+  } else {
+    tmp = CGNode(CGNode::CallType::GlobalVarFunPtrCall, VD->getName().str(),
+                 VD->getLocation().printToString(_SM));
+  }
+  return tmp;
+}
+
+CGNode FunPtrExtractor::FromDeclRefExpr(DeclRefExpr *DRE, FunctionDecl *scopeFD,
+                                        bool shouldCheck) {
+  if (DRE == nullptr) {
+    return _nullcgnode;
+  }
+  ValueDecl *valuedecl = DRE->getDecl();
+  if (valuedecl == nullptr) {
+    llvm::errs() << "[nullptr][DRE] DRE->getDecl()\n";
+    DRE->getLocation().dump(_SM);
+  } else if (VarDecl *VD = dyn_cast<VarDecl>(valuedecl)) {
+    QualType Ty = VD->getType();
+    if (Ty->isPointerType()) {
+      if (shouldCheck) {
+        if (Ty->isFunctionPointerType()) {
+          return EmitCGNodeFromVD(VD, _SM, scopeFD);
+        }
+      } else {
+        /* shouldCheck==false
+         * Note:
+         * caller should ensure that when shouldCheck==false
+         * the DRE is actually a function pointer,
+         * eg. a void* ptr from parm
+         */
+        return EmitCGNodeFromVD(VD, _SM, scopeFD);
+      } // if (shouldCheck)
+    }
+  } else if (FunctionDecl *FD = dyn_cast<FunctionDecl>(valuedecl)) {
+    CGNode tmp(CGNode::CallType::DirectCall, FD->getName().str(),
+               FD->getLocation().printToString(_SM));
+    return tmp;
+  } else {
+    if (!shouldCheck) {
+      llvm::errs() << "[Unknown][DRE] DRE->getDecl() kind\n";
+      valuedecl->getLocation().dump(_SM);
+    } else {
+      // ignore logging
+    }
+  }
+  return _nullcgnode;
+}
+
+void FunPtrExtractor::FromInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
+                                       Ptr2InfoType &_Need2AnalysisPtrInfo,
+                                       bool shouldCheck) {
   if (ILE->isSyntacticForm()) {
     InitListExpr *tmpILE = ILE->getSemanticForm();
     if (tmpILE != nullptr) {
@@ -315,7 +455,7 @@ void AnalysisPtrInfoWithInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
          i++, fdit++) {
       Expr *IE = ILE->getInit(i);
       if (!isa<ImplicitValueInitExpr>(IE)) {
-        CGNode ptee = GetPointeeWithILE(IE, scopeFD, sm);
+        CGNode ptee = FromExpr(IE, scopeFD, shouldCheck);
         if (ptee) {
           /* Note: 1 */
           // assert(fdit->getType()->isFunctionPointerType());
@@ -328,27 +468,6 @@ void AnalysisPtrInfoWithInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
     }
   }
 }
-
-ValueDecl *GetSimpleArrayDecl(Expr *E, SourceManager &_SM) {
-  if (ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
-    if (Expr *arrBaseExpr = ASE->getBase()->IgnoreParenCasts()) {
-      if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(arrBaseExpr)) {
-        // DRE->getDecl()->dump();
-        return DRE->getDecl();
-      } else {
-        llvm::errs() << "[Not Support] Array base is NOT a DeclRefExpr\n";
-        arrBaseExpr->getExprLoc().dump(_SM);
-      }
-    } else {
-      llvm::errs() << "[nullptr] ASE->getBase()->IgnoreParenCasts()\n";
-      ASE->getExprLoc().dump(_SM);
-    }
-  } else {
-    llvm::errs() << "[nullptr] Expr is NOT ArraySubscriptExpr\n";
-    E->getExprLoc().dump(_SM);
-  }
-  return nullptr;
-};
 
 }; // namespace lksast
 
@@ -393,8 +512,8 @@ void StmtLhsRhsAnalyzer::AnalysisResourceInVD(VarDecl *VD) {
 void StmtLhsRhsAnalyzer::AnalysisPtrInfoInVD(VarDecl *VD) {
   if (Expr *E = VD->getInit()) {
     if (InitListExpr *ILE = dyn_cast<InitListExpr>(E->IgnoreParenCasts())) {
-      AnalysisPtrInfoWithInitListExpr(ILE, _ScopeFD, _Need2AnalysisPtrInfo,
-                                      _CfgMgr);
+      _FptrExtractor.FromInitListExpr(ILE, _ScopeFD, _Need2AnalysisPtrInfo,
+                                      true);
     }
   }
 }
@@ -456,9 +575,7 @@ void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
   // FIXME: should be deduplicated the funcptr field, or think about:
   // struct fs->struct fsop->...(all of fields in fsop is funcptr)
   ValueDecl *memdecl = ME->getMemberDecl();
-  if (Decl::Field == memdecl->getKind()) {
-    FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
-    assert(fd != nullptr);
+  if (FieldDecl *fd = dyn_cast<FieldDecl>(memdecl)) {
     RecordDecl *rd = fd->getParent();
     if (!rd->isStruct()) { // maybe a union
       return;
@@ -472,58 +589,12 @@ void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
 }
 
 void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
-  if (E == nullptr) {
-    return;
-  }
-  E = E->IgnoreParenCasts();
-  // eg. call func1(&fun) ==> `&` is an UO
-  if (UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
-    E = UO->getSubExpr();
-  }
-  // -i ==> i ==> shit...
-  E = E->IgnoreParenCasts();
-  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (ValueDecl *ValueD = DRE->getDecl()) {
-      if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
-        if (VD->getType()->isFunctionPointerType()) {
-          if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(ValueD)) {
-            CGNode pointee(_Result.funcname, PVD->getFunctionScopeIndex(),
-                           PVD->getLocation().printToString(
-                               _SM)); // FIXME: record which loc?
-            _Need2AnalysisPtrInfo[pointer].insert(pointee);
-          } else {
-            llvm::errs() << "[Not Support] CallExpr Arg is a "
-                            "FunctionPointerType but not from ParmVar\n";
-            E->getExprLoc().dump(_SM);
-          }
-        } else {
-          /* Note: 2 */
-          ;
-        }
-      } else if (FunctionDecl *FD = dyn_cast<FunctionDecl>(ValueD)) {
-        CGNode pointee(CGNode::CallType::DirectCall, FD->getName().str(),
-                       FD->getLocation().printToString(_SM));
-        _Need2AnalysisPtrInfo[pointer].insert(pointee);
-      } else {
-        /* Note: 3 */
-        switch (ValueD->getKind()) {
-        case Decl::Function:
-        case Decl::EnumConstant:
-          break;
-        default:
-          llvm::errs()
-              << "[Unknown] CallExprArg->getDecl()->getDeclKindName(): "
-              << ValueD->getDeclKindName() << "\n";
-          E->getExprLoc().dump(_SM);
-          break;
-        }
-      } // cast ValueDecl into detail Decl
-    } else {
-      llvm::errs() << "[nullptr] DRE->getDecl()\n";
-      DRE->getExprLoc().dump(_SM);
-      DRE->dump();
-    } // if (VarDecl *VD = dyn_cast<VarDecl>(ValueD))
+  E = E->IgnoreParenCasts(); // switch-case will depend this
+  CGNode ptee = _FptrExtractor.FromExpr(E, _ScopeFD, true);
+  if (ptee) {
+    _Need2AnalysisPtrInfo[pointer].insert(ptee);
   } else {
+    // follow code just for debugging
     switch (E->getStmtClass()) {
     case Stmt::UnaryExprOrTypeTraitExprClass:  // sizeof
     case Stmt::BinaryOperatorClass:            // a+b
@@ -545,6 +616,26 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
       // llvm::errs() << "[CallExpr Arg] StmtClassName: [ "
       //              << E->getStmtClassName() << " ]\n";
       // E->getExprLoc().dump(_SM);
+      break;
+    case Stmt::DeclRefExprClass:
+      if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
+        if (ValueDecl *valuedecl = DRE->getDecl()) {
+          switch (valuedecl->getKind()) {
+          case Decl::Var:
+          case Decl::ParmVar:
+          case Decl::EnumConstant:
+            break;
+          default:
+            llvm::errs()
+                << "[Unknown] CallExprArg->getDecl()->getDeclKindName(): "
+                << valuedecl->getDeclKindName() << "\n";
+            E->getExprLoc().dump(_SM);
+            E->dump();
+            exit(1);
+            break;
+          }
+        }
+      }
       break;
     default:
       llvm::errs() << "[Unknown] CallExpr Arg StmtClass\n";
@@ -590,72 +681,26 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
       AnalysisCallExprArg(CE->getArg(i), tmppointer);
     }
   } else { // not DirectCallee
-    Decl *calleeD = CE->getCalleeDecl();
-    if (calleeD == nullptr) { // fun ptr arr
-      // eg. call mycal[1](a, b); which mycal is fun ptr array:
-      // int (*mycal[])(int, int) = {mysub, mymod, mydivi};
-      if (Expr *E = CE->getCallee()->IgnoreParenCasts()) {
-        if (ValueDecl *valuedecl = GetSimpleArrayDecl(E, _SM)) {
-          if (valuedecl->getKind() == Decl::Var) {
-            QualType Ty = valuedecl->getType();
-            const clang::Type *EleTy = Ty->getPointeeOrArrayElementType();
-            if (Ty->isFunctionPointerType() ||
-                (EleTy != nullptr && EleTy->isFunctionPointerType())) {
-              CGNode tmp(CGNode::CallType::ArrayFunPtrCall,
-                         valuedecl->getName().str(),
-                         valuedecl->getLocation().printToString(_SM));
-              _Result._Callees.insert(tmp);
-            } else {
-              llvm::errs() << "[Err] Callee not a FunctionPointerType: "
-                           << E->getExprLoc().printToString(_SM) << "\n";
-              E->dump();
-            }
-          } else {
-            llvm::errs() << "[Unknown] GetSimpleArrayDecl not a VD: [ "
-                         << valuedecl->getDeclKindName() << " ]\n";
-          }
-        } else {
-          // TODO
-          /* Note:
-           * May comes from Parm and it is also NOT a FunctionPointerType,
-           * because C lang can cast a pointer type,
-           * normally, in this situation, parm maybe a (void*)
-           * getCallee() =>
-           * |-ParenExpr
-           * | `-CStyleCastExpr
-           * |   `-ImplicitCastExpr
-           * |     `-DeclRefExpr => getDecl()==ParmVar
-           * */
-          llvm::errs() << "[!] Unknown getCallee\n";
-        }
-      } else {
-        llvm::errs() << "[!] getCallee is nullptr\n";
-      }
-    } else { // has CalleeDecl
-      if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(calleeD)) {
-        CGNode tmp(
-            _Result.funcname, PVD->getFunctionScopeIndex(),
-            PVD->getLocation().printToString(_SM)); // FIXME: record which loc?
-        _Result._Callees.insert(tmp);
-      } else if (FieldDecl *FieldD = dyn_cast<FieldDecl>(calleeD)) {
-        RecordDecl *RD = FieldD->getParent();
-        if (RD->isStruct()) {
-          string srcloc = FieldD->getLocation().printToString(_SM);
-          CGNode tmp(CGNode::CallType::StructMemberFunPtrCall,
-                     RD->getName().str(), FieldD->getName().str(), srcloc);
-          _Result._Callees.insert(tmp);
-        } else {
-          llvm::errs() << "[!] FieldDecl is not a Structure\n";
-        }
-      } else if (VarDecl *VD = dyn_cast<VarDecl>(calleeD)) {
-        llvm::errs() << "[!] CalleeDecl is unknown VarDecl!\n";
-        VD->dump();
-      } else {
-        llvm::errs() << "[!] CalleeDecl is unknown Decl!\n";
-        calleeD->dump();
-      }
-    } // CE->getCalleeDecl() == nullptr?
-  }   // is DirectCallee?
+    /* Note:
+     * May comes from Parm and it is also NOT a FunctionPointerType,
+     * because C lang can cast a pointer type,
+     * normally, in this situation, parm maybe a (void*)
+     * getCallee() =>
+     * |-ParenExpr
+     * | `-CStyleCastExpr
+     * |   `-ImplicitCastExpr
+     * |     `-DeclRefExpr => getDecl()==ParmVar
+     */
+    // TODO?
+    CGNode tmp = _FptrExtractor.FromExpr(CE->getCallee(), _ScopeFD, false);
+    if (tmp) {
+      _Result._Callees.insert(tmp);
+    } else {
+      llvm::errs() << "[Err][CallExpr] can extract func ptr from CallExpr\n";
+      CE->getExprLoc().dump(_SM);
+      CE->dump();
+    }
+  } // is DirectCallee?
 }
 
 void StmtLhsRhsAnalyzer::Visit(Stmt *S) {
@@ -699,122 +744,41 @@ void FunctionAnalyzer::AnalysisParms() {
   }
 }
 
-/*
- * 若rhs是FD，则分析lhs是否为member、array，
- *     是则加入指向信息lhs.insert(FD)，不是则忽略
- * 若rhs是PVD，则分析PVD是不是函数指针，
- *     是则加入指向信息lhs.insert("_FDname 0")，不是则忽略
- * // TODO
- * 其实还有一种可以处理的情况，rhs是个普通的指针被强转成函数指针后，
- * 赋值给lhs，如果lhs是函数指针的情况下，这种情况应该实现识别
- */
-CGNode FunctionAnalyzer::getPointee(Expr *rhs) {
-  rhs = rhs->IgnoreParenCasts();
-  CGNode nullcgnode;
-  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(rhs)) {
-    if (ValueDecl *ValueD = DRE->getDecl()) {
-      if (VarDecl *VD = dyn_cast<VarDecl>(ValueD)) {
-        if (VD->getType()->isFunctionPointerType()) {
-          if (ParmVarDecl *PVD = dyn_cast<ParmVarDecl>(ValueD)) {
-            CGNode tmp(_FD->getName().str(), PVD->getFunctionScopeIndex(),
-                       PVD->getLocation().printToString(_SM));
-            return tmp;
-          } else {
-            llvm::errs() << "[Unknown] rhs is a FunctionPointerType "
-                            "but not from ParmVar\n";
-            rhs->getExprLoc().dump(_SM);
-          } // if VD is ParmVarDecl
-        } else {
-          /* Note: 2 */
-          ;
-        } // end analysis VarDecl
-      } else if (FunctionDecl *FD = dyn_cast<FunctionDecl>(ValueD)) {
-        CGNode tmp(CGNode::CallType::DirectCall, FD->getName().str(),
-                   FD->getLocation().printToString(_SM));
-        return tmp;
-      } else {
-        /* Note: 3 */
-        // rhs is not a function
-      } // cast ValueDecl into detail Decl
-    } else {
-      llvm::errs() << "[nullptr] rhs DRE->getDecl()\n";
-      DRE->getExprLoc().dump(_SM);
-    } // if (VarDecl *VD = dyn_cast<VarDecl>(ValueD))
-  }
-  /*
-   Note:
-   Is it possible rhs is not DeclRefExpr, but it a funcptr too,
-   eg. struct fsop1->open = struct fsop2->open.
-   We not need to handle this because it do not change any point-to info.
-  */
-  return nullcgnode;
-}
-
-CGNode FunctionAnalyzer::getPointer(Expr *lhs) {
-  CGNode nullcgnode;
-  lhs = lhs->IgnoreParenCasts();
-  if (MemberExpr *ME = dyn_cast<MemberExpr>(lhs)) {
-    ValueDecl *memdecl = ME->getMemberDecl();
-    if (Decl::Field == memdecl->getKind()) {
-      FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
-      assert(fd != nullptr);
-      RecordDecl *rd = fd->getParent();
-      if (!rd->isStruct()) {
-        llvm::errs() << "[Unknown] RecordDecl is not a Structure?\n";
-        rd->getLocation().dump(_SM);
-        return nullcgnode;
-      }
-      /* Note: 1 */
-      // assert(fd->getType()->isFunctionPointerType());
-      CGNode tmp(CGNode::CallType::StructMemberFunPtrCall, rd->getName().str(),
-                 fd->getName().str(), fd->getLocation().printToString(_SM));
-      return tmp;
-    } else {
-      llvm::errs() << "[Unknown] ME->getMemberDecl() is not a FieldDecl?\n";
-      memdecl->getLocation().dump(_SM);
-    }
-  } else if (ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(lhs)) {
-    if (ValueDecl *valuedecl = GetSimpleArrayDecl(lhs, _SM)) {
-      if (valuedecl->getKind() == Decl::Var) {
-        QualType Ty = valuedecl->getType();
-        const clang::Type *EleTy = Ty->getPointeeOrArrayElementType();
-        if (Ty->isFunctionPointerType() ||
-            (EleTy != nullptr && EleTy->isFunctionPointerType())) {
-          CGNode tmp(CGNode::CallType::ArrayFunPtrCall,
-                     valuedecl->getName().str(),
-                     valuedecl->getLocation().printToString(_SM));
-          return tmp;
-        } else {
-          llvm::errs() << "[Err] not a array pointer: "
-                       << ASE->getExprLoc().printToString(_SM) << "\n";
-          ASE->dump();
-          valuedecl->dump();
-          assert(0);
-        }
-      } else {
-        llvm::errs() << "[Unknown] Array base Decl\n";
-        valuedecl->getLocation().dump(_SM);
-      }
-    } else {
-      llvm::errs() << "[Not Support] Array base is NOT simple\n";
-      ASE->getExprLoc().dump(_SM);
-    }
-  } else {
-    llvm::errs() << "[Unknown] lhs not a struct member or array\n";
-    lhs->getExprLoc().dump(_SM);
-  }
-  return nullcgnode;
-}
-
 void FunctionAnalyzer::AnalysisPoint2InfoWithBOAssign(Expr *lhs, Expr *rhs) {
-  CGNode ptee = getPointee(rhs);
+  /*
+    FIXME?:
+    eg. struct fsop1->open = struct fsop2->open.
+    will make analysis in a dead loop?
+  */
+  // TODO
+  // rhs: bool ? func1 : func2
+  bool checkAgain = true;
+  CGNode pter;
+  CGNode ptee = _FptrExtractor.FromExpr(rhs, _FD, true);
   if (ptee) {
-    CGNode pter = getPointer(lhs);
+    pter = _FptrExtractor.FromExpr(lhs, _FD, false);
     if (pter) {
       _Need2AnalysisPtrInfo[pter].insert(ptee);
+      checkAgain = false;
+    } else {
+      llvm::errs() << "[Err] rhs is ptr, but lhs not\n";
+      lhs->getExprLoc().dump(_SM);
+      lhs->dump();
     }
   }
-  return;
+  if (checkAgain) {
+    pter = _FptrExtractor.FromExpr(lhs, _FD, true);
+    if (pter) {
+      ptee = _FptrExtractor.FromExpr(rhs, _FD, false);
+      if (ptee) {
+        _Need2AnalysisPtrInfo[pter].insert(ptee);
+      } else {
+        llvm::errs() << "[Err] lhs is ptr, but rhs not\n";
+        rhs->getExprLoc().dump(_SM);
+        rhs->dump();
+      }
+    }
+  }
 }
 
 void FunctionAnalyzer::AnalysisReadStmt(Stmt *LHSorSR) {
@@ -911,7 +875,8 @@ bool TUAnalyzer::TraverseFunctionDecl(FunctionDecl *FD) {
     if (_CfgMgr.isNeedToAnalysis(FD)) {
       // TODO: check again
       llvm::errs() << "[+] Analysis Function: " << FD->getName() << "\n";
-      FunctionAnalyzer funcAnalyzer(FD, _CfgMgr, _Need2AnalysisPtrInfo);
+      FunctionAnalyzer funcAnalyzer(FD, _CfgMgr, _Need2AnalysisPtrInfo,
+                                    _FptrExtractor);
       funcAnalyzer.Analysis();
       FunctionResult &curFuncRes = funcAnalyzer.getFunctionResult();
       TUResult.insert(curFuncRes);
@@ -926,9 +891,17 @@ bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
   /* handle func ptr array InitListExpr */
   QualType Ty = VD->getType();
   if (Ty->isFunctionPointerType()) {
+    CGNode pter =
+        CGNode(CGNode::CallType::GlobalVarFunPtrCall, VD->getName().str(),
+               VD->getLocation().printToString(sm));
     if (Expr *E = VD->getInit()) {
-      // TODO: cast?
+      // because VD may init with NULL, shouldCheck should be true
+      CGNode ptee = _FptrExtractor.FromExpr(E, nullptr);
+      if (ptee) {
+        _Need2AnalysisPtrInfo[pter].insert(ptee);
+      }
     }
+    return true;
   }
   if (!(Ty->isArrayType())) {
     return true;
@@ -948,7 +921,7 @@ bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
     for (unsigned int i = 0; i < ILE->getNumInits(); i++) {
       Expr *IE = ILE->getInit(i);
       if (!isa<ImplicitValueInitExpr>(IE)) {
-        CGNode ptee = GetPointeeWithILE(IE, nullptr, sm);
+        CGNode ptee = _FptrExtractor.FromExpr(IE, nullptr, false);
         if (ptee) {
           _Need2AnalysisPtrInfo[pter].insert(ptee);
         }
@@ -964,7 +937,7 @@ bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
 }
 
 bool TUAnalyzer::VisitInitListExpr(InitListExpr *ILE) {
-  AnalysisPtrInfoWithInitListExpr(ILE, nullptr, _Need2AnalysisPtrInfo, _CfgMgr);
+  _FptrExtractor.FromInitListExpr(ILE, nullptr, _Need2AnalysisPtrInfo, true);
   return true;
 }
 

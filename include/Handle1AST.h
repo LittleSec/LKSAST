@@ -122,13 +122,28 @@ public:
 /* Helper Function */
 namespace lksast {
 
-CGNode GetPointeeWithILE(clang::Expr *initExpr, clang::FunctionDecl *scopeFD,
-                         clang::SourceManager &_SM);
-void AnalysisPtrInfoWithInitListExpr(clang::InitListExpr *ILE,
-                                     clang::FunctionDecl *scopeFD,
-                                     Ptr2InfoType &_Need2AnalysisPtrInfo,
-                                     ConfigManager &_CfgMgr);
-clang::ValueDecl *GetSimpleArrayDecl(clang::Expr *E, clang::SourceManager &_SM);
+class FunPtrExtractor {
+private:
+  clang::SourceManager &_SM;
+  ConfigManager &_CfgMgr;
+  CGNode _nullcgnode;
+
+public:
+  FunPtrExtractor(clang::SourceManager &sm, ConfigManager &cfgmgr)
+      : _SM(sm), _CfgMgr(cfgmgr){};
+  CGNode FromMemberExpr(clang::MemberExpr *ME, bool shouldCheck = true);
+  CGNode FromArraySubscriptExpr(clang::ArraySubscriptExpr *ASE,
+                                bool shouldCheck = true);
+  CGNode FromDeclRefExpr(clang::DeclRefExpr *DRE, clang::FunctionDecl *scopeFD,
+                         bool shouldCheck = true);
+  CGNode FromExpr(clang::Expr *E, clang::FunctionDecl *scopeFD,
+                  bool shouldCheck = true);
+  void FromInitListExpr(clang::InitListExpr *ILE, clang::FunctionDecl *scopeFD,
+                        Ptr2InfoType &_Need2AnalysisPtrInfo,
+                        bool shouldCheck = true);
+  CGNode EmitCGNodeFromVD(clang::VarDecl *VD, clang::SourceManager &_SM,
+                          clang::FunctionDecl *scopeFD);
+};
 
 }; // namespace lksast
 
@@ -153,20 +168,21 @@ private:
   ResourceAccessNode::AccessType _AccType;
   Ptr2InfoType &_Need2AnalysisPtrInfo;
   FunctionResult &_Result;
+  FunPtrExtractor &_FptrExtractor;
 
 public:
   StmtLhsRhsAnalyzer(clang::FunctionDecl *fd, clang::SourceManager &sm,
                      ConfigManager &cfgmgr, Ptr2InfoType &ptrinfo,
-                     FunctionResult &result)
+                     FunctionResult &result, FunPtrExtractor &fpextra)
       : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Need2AnalysisPtrInfo(ptrinfo),
-        _Result(result), isLhs(false), hasAsm(false) {
+        _Result(result), _FptrExtractor(fpextra), isLhs(false), hasAsm(false) {
     _AccType = ResourceAccessNode::AccessType::Read;
   }
   StmtLhsRhsAnalyzer(clang::FunctionDecl *fd, clang::SourceManager &sm,
                      ConfigManager &cfgmgr, Ptr2InfoType &ptrinfo,
-                     FunctionResult &result, bool lhs)
+                     FunctionResult &result, FunPtrExtractor &fpextra, bool lhs)
       : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Need2AnalysisPtrInfo(ptrinfo),
-        _Result(result), isLhs(lhs), hasAsm(false) {
+        _Result(result), _FptrExtractor(fpextra), isLhs(lhs), hasAsm(false) {
     _AccType = isLhs ? ResourceAccessNode::AccessType::Write
                      : ResourceAccessNode::AccessType::Read;
   }
@@ -197,25 +213,22 @@ private:
   clang::SourceManager &_SM;
   ConfigManager &_CfgMgr;
   Ptr2InfoType &_Need2AnalysisPtrInfo;
+  FunPtrExtractor &_FptrExtractor;
   FunctionResult _Result;
   StmtLhsRhsAnalyzer _StmtAnalyzer;
 
 public:
   FunctionAnalyzer(clang::FunctionDecl *fd, ConfigManager &cfgmgr,
-                   Ptr2InfoType &ptrinfo)
+                   Ptr2InfoType &ptrinfo, FunPtrExtractor &fpextra)
       : _FD(fd), _CfgMgr(cfgmgr), _SM(_FD->getASTContext().getSourceManager()),
-        _Need2AnalysisPtrInfo(ptrinfo), _Result(fd),
-        _StmtAnalyzer(_FD, _SM, cfgmgr, ptrinfo, _Result){};
+        _Need2AnalysisPtrInfo(ptrinfo), _FptrExtractor(fpextra), _Result(fd),
+        _StmtAnalyzer(_FD, _SM, cfgmgr, ptrinfo, _Result, fpextra){};
 
   void AnalysisParms();
-  /*
-   * 若rhs是FD，则分析lhs是否为member、array，
-   *     是则加入指向信息lhs.insert(FD)，不是则忽略
-   * 若rhs是PVD，则分析PVD是不是函数指针，
-   *     是则加入指向信息lhs.insert("_FDname 0")，不是则忽略
+  /* Unused:
+   * CGNode getPointee(clang::Expr *rhs);
+   * CGNode getPointer(clang::Expr *lhs);
    */
-  CGNode getPointee(clang::Expr *rhs);
-  CGNode getPointer(clang::Expr *lhs);
   void AnalysisPoint2InfoWithBOAssign(clang::Expr *lhs, clang::Expr *rhs);
   void AnalysisReadStmt(clang::Stmt *LHSorSR);
   void AnalysisWriteStmt(clang::Stmt *RHSorSW);
@@ -230,14 +243,15 @@ private:
   clang::ASTContext &_ASTCtx;
   ConfigManager &_CfgMgr;
   std::unordered_set<FunctionResult, FunctionResult::Hash> TUResult;
-  // FIXME, maybe _Need2AnalysisPtrInfo belong to all TUs, not juse this TU
   Ptr2InfoType &_Need2AnalysisPtrInfo;
+  FunPtrExtractor _FptrExtractor;
 
 public:
   TUAnalyzer(const std::unique_ptr<clang::ASTUnit> &au, ConfigManager &cfgmgr,
              Ptr2InfoType &ptrinfo)
       : _CfgMgr(cfgmgr), _ASTCtx(au->getASTContext()),
-        _Need2AnalysisPtrInfo(ptrinfo){};
+        _Need2AnalysisPtrInfo(ptrinfo),
+        _FptrExtractor(_ASTCtx.getSourceManager(), cfgmgr){};
 
   void check() { HandleTranslationUnit(_ASTCtx); }
   void HandleTranslationUnit(clang::ASTContext &Context) override;
