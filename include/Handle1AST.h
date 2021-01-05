@@ -117,6 +117,9 @@ public:
   };
 };
 
+using FunctionResultsType =
+    std::unordered_set<FunctionResult, FunctionResult::Hash>;
+
 }; // namespace lksast
 
 /* Helper Function */
@@ -229,8 +232,7 @@ class TUAnalyzer : public clang::ASTConsumer,
 private:
   clang::ASTContext &_ASTCtx;
   ConfigManager &_CfgMgr;
-  std::unordered_set<FunctionResult, FunctionResult::Hash> TUResult;
-  // FIXME, maybe _Need2AnalysisPtrInfo belong to all TUs, not juse this TU
+  FunctionResultsType TUResult;
   Ptr2InfoType &_Need2AnalysisPtrInfo;
 
 public:
@@ -246,6 +248,7 @@ public:
   bool VisitInitListExpr(clang::InitListExpr *ILE);
   void dump(std::ofstream &of);
   void dumpJSON(std::ofstream &of, bool ismin = false);
+  FunctionResultsType &getTUResult() { return TUResult; };
 }; // class TUAnalyzer
 
 }; // namespace lksast

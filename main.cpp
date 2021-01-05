@@ -152,6 +152,7 @@ int main(int argc, char *argv[]) {
     ASTManager manager(argv[1]);
     ConfigManager cfgmgr(argv[2], argv[3]);
     Ptr2InfoType Need2AnalysisPtrInfo;
+    std::ofstream fun2jsonfile("fun2json.txt");
     for (auto &au : manager.getAstUnits()) {
       llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
       TUAnalyzer analyzer(au, cfgmgr, Need2AnalysisPtrInfo);
@@ -160,7 +161,12 @@ int main(int argc, char *argv[]) {
       std::ofstream outfile(resultfilename);
       analyzer.dumpJSON(outfile);
       outfile.close();
+      for (auto &funres : analyzer.getTUResult()) {
+        fun2jsonfile << funres.funcname << " " << resultfilename << "\n";
+      }
     }
+    fun2jsonfile.close();
+
     std::ofstream outfile("Need2AnalysisPtrInfo.txt");
     DumpPtrInfo2txt(outfile, Need2AnalysisPtrInfo, true);
     outfile.close();
