@@ -169,7 +169,9 @@ for cc in ccjson:
         # e.g. "-DBUILD_STR(s)=#s" => -DBUILD_STR(s)=#s => ..
         for i, arg in enumerate(cmdargs):
             if arg.startswith('"') and arg.endswith('"'):
-              cmd_exe[i] = arg[1:-1]
+              cmdargs[i] = arg[1:-1]
+            elif arg.startswith('"') and arg.endswith('"'):
+              cmdargs[i] = arg[1:-1]
         cmd_exe = ' '.join(cmdargs)
         cmd_exe = cmd_exe.replace('"', r'\"') # e.g. -DMARCO="string", the double quotation marks should be escaped => -DMARCO=\"string\"
         # in Linux Kernel(LLVM=1): 
