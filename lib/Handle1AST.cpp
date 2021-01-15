@@ -30,7 +30,7 @@ CGNode::CGNode(CallType t, const std::string &n, const std::string &dl)
     name = "GlobalVar " + n;
     break;
   default:
-    name = n;
+    name = n; // DirectCall
     break;
   }
 }
@@ -73,6 +73,8 @@ const char *CGNode::CallType2String() const {
     return "GlobalVarFunPtrCall";
   case LocalVarFunPtrCall:
     return "LocalVarFunPtrCall";
+  case NULLFunPtr:
+    return "NULLFunPtr";
   // case OtherCall:
   default:
     return "OtherCall(for debug)";
@@ -256,10 +258,13 @@ size_t FunctionResult::Hash::operator()(const FunctionResult &n) const {
 /* Helper Function */
 namespace lksast {
 
-CGNode FunPtrExtractor::FromExpr(Expr *E, FunctionDecl *scopeFD,
-                                 bool shouldCheck) {
+std::pair<CGNode, CGNode>
+FunPtrExtractor::FromExpr(Expr *E, FunctionDecl *scopeFD, bool shouldCheck) {
+  std::pair<CGNode, CGNode> ret;
+  ret.first = _nullcgnode;
+  ret.second = _nullcgnode;
   if (E == nullptr) {
-    return _nullcgnode;
+    return ret;
   }
   E = E->IgnoreParenCasts();
   /* Note:
@@ -273,21 +278,28 @@ CGNode FunPtrExtractor::FromExpr(Expr *E, FunctionDecl *scopeFD,
   if (UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
     E = UO->getSubExpr()->IgnoreParenCasts();
   }
-  /* End of copy */
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     // local: parm, funcptr val, func
     // global: funcptr val, func
-    return FromDeclRefExpr(DRE, scopeFD, shouldCheck);
+    ret.first = FromDeclRefExpr(DRE, scopeFD, shouldCheck);
   } else if (MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
-    return FromMemberExpr(ME, shouldCheck);
+    ret.first = FromMemberExpr(ME, shouldCheck);
   } else if (ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
-    return FromArraySubscriptExpr(ASE, shouldCheck);
+    ret.first = FromArraySubscriptExpr(ASE, shouldCheck);
+  } else if (IntegerLiteral *IL = dyn_cast<IntegerLiteral>(E)) {
+    if (!shouldCheck) {
+      ret.first = CGNode(IL->getLocation().printToString(_SM));
+    }
+  } else if (ConditionalOperator *CO = dyn_cast<ConditionalOperator>(E)) {
+    ret.first = FromExpr(CO->getTrueExpr(), scopeFD, shouldCheck).first;
+    ret.second = FromExpr(CO->getFalseExpr(), scopeFD, shouldCheck).first;
   } else {
+    // TODO: many Expr class will has FunPtr, eg. ILE, caller should filter
     // llvm::errs() << "[unknown][FunPtrExtractor] StmtClassName: "
     //              << E->getStmtClassName() << "\n";
     // E->getExprLoc().dump(_SM);
-    return _nullcgnode;
   }
+  return ret;
 }
 
 CGNode FunPtrExtractor::FromMemberExpr(MemberExpr *ME, bool shouldCheck) {
@@ -455,14 +467,21 @@ void FunPtrExtractor::FromInitListExpr(InitListExpr *ILE, FunctionDecl *scopeFD,
          i++, fdit++) {
       Expr *IE = ILE->getInit(i);
       if (!isa<ImplicitValueInitExpr>(IE)) {
-        CGNode ptee = FromExpr(IE, scopeFD, shouldCheck);
-        if (ptee) {
+        std::pair<CGNode, CGNode> cgnodes = FromExpr(IE, scopeFD, shouldCheck);
+        CGNode ptee1 = cgnodes.first;
+        CGNode ptee2 = cgnodes.second;
+        if (ptee1 || ptee2) {
           /* Note: 1 */
           // assert(fdit->getType()->isFunctionPointerType());
           CGNode pter = CGNode(CGNode::CallType::StructMemberFunPtrCall,
                                rd->getName().str(), fdit->getName().str(),
                                fdit->getLocation().printToString(sm));
-          _Need2AnalysisPtrInfo[pter].insert(ptee);
+          if (ptee1) {
+            _Need2AnalysisPtrInfo[pter].insert(ptee1);
+          }
+          if (ptee2) {
+            _Need2AnalysisPtrInfo[pter].insert(ptee2);
+          }
         }
       }
     }
@@ -508,13 +527,13 @@ void StmtLhsRhsAnalyzer::AnalysisResourceInVD(VarDecl *VD) {
    */
 }
 
-// TODO: check again
 void StmtLhsRhsAnalyzer::AnalysisPtrInfoInVD(VarDecl *VD) {
   if (Expr *E = VD->getInit()) {
     if (InitListExpr *ILE = dyn_cast<InitListExpr>(E->IgnoreParenCasts())) {
       _FptrExtractor.FromInitListExpr(ILE, _ScopeFD, _Need2AnalysisPtrInfo,
                                       true);
     }
+    // TODO: normal funcptr var
   }
 }
 
@@ -527,7 +546,6 @@ void StmtLhsRhsAnalyzer::VisitDeclStmt(DeclStmt *DS) {
   }
 }
 
-// TODO: support LocalVarFunPtrCall
 void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
   ValueDecl *valuedecl = DRE->getDecl();
   if (const VarDecl *VD = dyn_cast<VarDecl>(valuedecl)) {
@@ -590,9 +608,17 @@ void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
 
 void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
   E = E->IgnoreParenCasts(); // switch-case will depend this
-  CGNode ptee = _FptrExtractor.FromExpr(E, _ScopeFD, true);
-  if (ptee) {
-    _Need2AnalysisPtrInfo[pointer].insert(ptee);
+  std::pair<CGNode, CGNode> cgnodes =
+      _FptrExtractor.FromExpr(E, _ScopeFD, true);
+  CGNode ptee1 = cgnodes.first;
+  CGNode ptee2 = cgnodes.second;
+  if (ptee1 || ptee2) {
+    if (ptee1) {
+      _Need2AnalysisPtrInfo[pointer].insert(ptee1);
+    }
+    if (ptee2) {
+      _Need2AnalysisPtrInfo[pointer].insert(ptee2);
+    }
   } else {
     // follow code just for debugging
     switch (E->getStmtClass()) {
@@ -604,9 +630,9 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
     case Stmt::CharacterLiteralClass:          // 'a'
     case Stmt::StringLiteralClass:             // "str"
     case Stmt::CompoundLiteralExprClass:       // [c99] struct, (a_t){1}
-    case Stmt::ArraySubscriptExprClass:        // TODO: a[1]
+    case Stmt::ArraySubscriptExprClass:        // a[1]
     case Stmt::CallExprClass:                  //
-    case Stmt::MemberExprClass:                // TODO: task->pid
+    case Stmt::MemberExprClass:                // task->pid
     case Stmt::ConditionalOperatorClass:       // a ? 1 : 2
     case Stmt::BinaryConditionalOperatorClass: // [gun c ext] x ?: y
     case Stmt::PredefinedExprClass:            // [c99] __func__
@@ -647,22 +673,6 @@ void StmtLhsRhsAnalyzer::AnalysisCallExprArg(Expr *E, CGNode &pointer) {
   }
 }
 
-/*
-  一 如果CE里实参里有函数指针，应当分析并记录其指向关系
-  ("calleename 0 ptr2funcname")，其中：
-    1 ptr2funcname要么是一个确定的函数名或者是下面二中所述情况之一
-    2 例如ptr2funcname是函数来自参数则("calleename 0 callername 0")
-    3 TODO: calleename只能是直接调用，暂不支持函数指针
-  二 直接调用则记录到CG中，
-  非直接调用都按照函数指针处理，判断fp的来源共三种情况
-    1 是fp是结构体某个域，则记录该结构体的类型和域名信息("struct fop.read")
-    2 是fp是fp数组里某个值，则记录该数组名("array funptr")
-    3 是直接fp()，这种情况如果是从parm来则记录当前_FD名和parmidx("_FDname
-    0")
-  说明:
-
-  其他情况均不考虑，如：
-*/
 void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
   if (FunctionDecl *FD = CE->getDirectCallee()) {
     // if (calleeD->getKind() == Decl::Function) {
@@ -691,8 +701,8 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
      * |   `-ImplicitCastExpr
      * |     `-DeclRefExpr => getDecl()==ParmVar
      */
-    // TODO?
-    CGNode tmp = _FptrExtractor.FromExpr(CE->getCallee(), _ScopeFD, false);
+    CGNode tmp =
+        _FptrExtractor.FromExpr(CE->getCallee(), _ScopeFD, false).first;
     if (tmp) {
       _Result._Callees.insert(tmp);
     } else {
@@ -731,7 +741,7 @@ void StmtLhsRhsAnalyzer::VisitAsmStmt(AsmStmt *AS) {
  **********************************/
 #if FunctionAnalyzer_METHODS
 
-// TODO
+// Note: just logging
 void FunctionAnalyzer::AnalysisParms() {
   unsigned int numOfParams = _FD->getNumParams();
   for (unsigned int i = 0; i < numOfParams; i++) {
@@ -750,15 +760,20 @@ void FunctionAnalyzer::AnalysisPoint2InfoWithBOAssign(Expr *lhs, Expr *rhs) {
     eg. struct fsop1->open = struct fsop2->open.
     will make analysis in a dead loop?
   */
-  // TODO
-  // rhs: bool ? func1 : func2
   bool checkAgain = true;
   CGNode pter;
-  CGNode ptee = _FptrExtractor.FromExpr(rhs, _FD, true);
-  if (ptee) {
-    pter = _FptrExtractor.FromExpr(lhs, _FD, false);
+  std::pair<CGNode, CGNode> cgnodes = _FptrExtractor.FromExpr(rhs, _FD, true);
+  CGNode ptee1 = cgnodes.first;
+  CGNode ptee2 = cgnodes.second;
+  if (ptee1 || ptee2) {
+    pter = _FptrExtractor.FromExpr(lhs, _FD, false).first;
     if (pter) {
-      _Need2AnalysisPtrInfo[pter].insert(ptee);
+      if (ptee1) {
+        _Need2AnalysisPtrInfo[pter].insert(ptee1);
+      }
+      if (ptee2) {
+        _Need2AnalysisPtrInfo[pter].insert(ptee2);
+      }
       checkAgain = false;
     } else {
       llvm::errs() << "[Err] rhs is ptr, but lhs not\n";
@@ -767,11 +782,18 @@ void FunctionAnalyzer::AnalysisPoint2InfoWithBOAssign(Expr *lhs, Expr *rhs) {
     }
   }
   if (checkAgain) {
-    pter = _FptrExtractor.FromExpr(lhs, _FD, true);
+    pter = _FptrExtractor.FromExpr(lhs, _FD, true).first;
     if (pter) {
-      ptee = _FptrExtractor.FromExpr(rhs, _FD, false);
-      if (ptee) {
-        _Need2AnalysisPtrInfo[pter].insert(ptee);
+      cgnodes = _FptrExtractor.FromExpr(rhs, _FD, false);
+      ptee1 = cgnodes.first;
+      ptee2 = cgnodes.second;
+      if (ptee1 || ptee2) {
+        if (ptee1) {
+          _Need2AnalysisPtrInfo[pter].insert(ptee1);
+        }
+        if (ptee2) {
+          _Need2AnalysisPtrInfo[pter].insert(ptee2);
+        }
       } else {
         llvm::errs() << "[Err] lhs is ptr, but rhs not\n";
         rhs->getExprLoc().dump(_SM);
@@ -873,7 +895,6 @@ void TUAnalyzer::HandleTranslationUnit(ASTContext &Context) {
 bool TUAnalyzer::TraverseFunctionDecl(FunctionDecl *FD) {
   if (FD->hasBody()) {
     if (_CfgMgr.isNeedToAnalysis(FD)) {
-      // TODO: check again
       llvm::errs() << "[+] Analysis Function: " << FD->getName() << "\n";
       FunctionAnalyzer funcAnalyzer(FD, _CfgMgr, _Need2AnalysisPtrInfo,
                                     _FptrExtractor);
@@ -882,10 +903,12 @@ bool TUAnalyzer::TraverseFunctionDecl(FunctionDecl *FD) {
       TUResult.insert(curFuncRes);
     }
   }
+  // return RecursiveASTVisitor<TUAnalyzer>::TraverseFunctionDecl(FD);
   return true;
 }
 
-// TODO: support GlobalVarFunPtrCall
+// TODO: logic err?
+// should handle GlobalVarFunPtrCall/InitListExpr(struct and array)
 bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
   SourceManager &sm = VD->getASTContext().getSourceManager();
   /* handle func ptr array InitListExpr */
@@ -896,9 +919,17 @@ bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
                VD->getLocation().printToString(sm));
     if (Expr *E = VD->getInit()) {
       // because VD may init with NULL, shouldCheck should be true
-      CGNode ptee = _FptrExtractor.FromExpr(E, nullptr);
-      if (ptee) {
-        _Need2AnalysisPtrInfo[pter].insert(ptee);
+      std::pair<CGNode, CGNode> cgnodes =
+          _FptrExtractor.FromExpr(E, nullptr, true);
+      CGNode ptee1 = cgnodes.first;
+      CGNode ptee2 = cgnodes.second;
+      if (ptee1 || ptee2) {
+        if (ptee1) {
+          _Need2AnalysisPtrInfo[pter].insert(ptee1);
+        }
+        if (ptee2) {
+          _Need2AnalysisPtrInfo[pter].insert(ptee2);
+        }
       }
     }
     return true;
@@ -921,9 +952,17 @@ bool TUAnalyzer::VisitVarDecl(VarDecl *VD) {
     for (unsigned int i = 0; i < ILE->getNumInits(); i++) {
       Expr *IE = ILE->getInit(i);
       if (!isa<ImplicitValueInitExpr>(IE)) {
-        CGNode ptee = _FptrExtractor.FromExpr(IE, nullptr, false);
-        if (ptee) {
-          _Need2AnalysisPtrInfo[pter].insert(ptee);
+        std::pair<CGNode, CGNode> cgnodes =
+            _FptrExtractor.FromExpr(IE, nullptr, false);
+        CGNode ptee1 = cgnodes.first;
+        CGNode ptee2 = cgnodes.second;
+        if (ptee1 || ptee2) {
+          if (ptee1) {
+            _Need2AnalysisPtrInfo[pter].insert(ptee1);
+          }
+          if (ptee2) {
+            _Need2AnalysisPtrInfo[pter].insert(ptee2);
+          }
         }
       }
     }

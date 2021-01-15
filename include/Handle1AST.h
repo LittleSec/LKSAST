@@ -37,15 +37,23 @@ public:
     ParmFunPtrCall,         // cg.add("caller 0") // 0 parm is funptr
     GlobalVarFunPtrCall,    // cg.add("GlobalVar varname")
     LocalVarFunPtrCall,     // cg.add("funname varname")
+    // maybe NULL(0), or IntegerLiteral 1,2...
+    NULLFunPtr, // cg.add("NULL")
     OtherCall
   };
   CallType type;
   std::string name;
   std::string declloc;
 
-  CGNode() : type(NULLCGNode){};
+  CGNode() : type(NULLCGNode){}; // default constructor(for NULLCGNode)
+  // constructor for NULLFunPtr
+  CGNode(const std::string &dl)
+      : type(NULLFunPtr), name("NULLFunPtr"), declloc(dl){};
+  // constructor for DirectCall/ArrayFunPtrCall/GlobalVarFunPtrCall
   CGNode(CallType t, const std::string &n, const std::string &dl);
+  // constructor for ParmFunPtrCall
   CGNode(const std::string &n, size_t parmidx, const std::string &dl);
+  // constructor for StructMemberFunPtrCall/LocalVarFunPtrCall
   CGNode(CallType t, const std::string &n1, const std::string &n2,
          const std::string &dl);
   const char *CallType2String() const;
@@ -127,20 +135,21 @@ namespace lksast {
 
 class FunPtrExtractor {
 private:
+  clang::ASTContext &_ASTCtx;
   clang::SourceManager &_SM;
   ConfigManager &_CfgMgr;
   CGNode _nullcgnode;
 
 public:
-  FunPtrExtractor(clang::SourceManager &sm, ConfigManager &cfgmgr)
-      : _SM(sm), _CfgMgr(cfgmgr){};
+  FunPtrExtractor(clang::ASTContext &ctx, ConfigManager &cfgmgr)
+      : _ASTCtx(ctx), _SM(ctx.getSourceManager()), _CfgMgr(cfgmgr){};
   CGNode FromMemberExpr(clang::MemberExpr *ME, bool shouldCheck = true);
   CGNode FromArraySubscriptExpr(clang::ArraySubscriptExpr *ASE,
                                 bool shouldCheck = true);
   CGNode FromDeclRefExpr(clang::DeclRefExpr *DRE, clang::FunctionDecl *scopeFD,
                          bool shouldCheck = true);
-  CGNode FromExpr(clang::Expr *E, clang::FunctionDecl *scopeFD,
-                  bool shouldCheck = true);
+  std::pair<CGNode, CGNode>
+  FromExpr(clang::Expr *E, clang::FunctionDecl *scopeFD, bool shouldCheck);
   void FromInitListExpr(clang::InitListExpr *ILE, clang::FunctionDecl *scopeFD,
                         Ptr2InfoType &_Need2AnalysisPtrInfo,
                         bool shouldCheck = true);
@@ -253,8 +262,7 @@ public:
   TUAnalyzer(const std::unique_ptr<clang::ASTUnit> &au, ConfigManager &cfgmgr,
              Ptr2InfoType &ptrinfo)
       : _CfgMgr(cfgmgr), _ASTCtx(au->getASTContext()),
-        _Need2AnalysisPtrInfo(ptrinfo),
-        _FptrExtractor(_ASTCtx.getSourceManager(), cfgmgr){};
+        _Need2AnalysisPtrInfo(ptrinfo), _FptrExtractor(_ASTCtx, cfgmgr){};
 
   void check() { HandleTranslationUnit(_ASTCtx); }
   void HandleTranslationUnit(clang::ASTContext &Context) override;

@@ -29,7 +29,7 @@ void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
       CGsType &curptees = info->second;
       isAllDirect = true;
       for (auto &ptee : curptees) {
-        if (ptee.type != ptee.DirectCall) {
+        if (ptee.type != ptee.DirectCall && ptee.type != ptee.NULLFunPtr) {
           isAllDirect = false;
           break;
         }
@@ -48,7 +48,7 @@ void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
       CGsType shouldbeinsert;
       for (CGsType::iterator ptee = curptees.begin(), cged = curptees.end();
            ptee != cged;) {
-        if (ptee->type != ptee->DirectCall) {
+        if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
           auto findptees = tgr.find(*ptee);
           if (findptees != tgr.end()) {
             for (auto &n : findptees->second) {
@@ -96,7 +96,6 @@ int main(int argc, char *argv[]) {
 
   ConfigManager cfgmgr(argv[1]);
   // cfgmgr.dump();
-  llvm::errs() << cfgmgr.getFnAstList() << "\n";
   ASTManager manager(cfgmgr.getFnAstList());
   Ptr2InfoType Need2AnalysisPtrInfo;
   std::ofstream fun2jsonfile(cfgmgr.getFnFun2Json());
