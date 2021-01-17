@@ -33,10 +33,12 @@ public:
     NULLCGNode,             // cast CGNode into bool
     DirectCall,             // cg.add("funname")
     StructMemberFunPtrCall, // cg.add("struct fs.open")
-    ArrayFunPtrCall,        // cg.add("Array arrname")
-    ParmFunPtrCall,         // cg.add("caller 0") // 0 parm is funptr
-    GlobalVarFunPtrCall,    // cg.add("GlobalVar varname")
-    LocalVarFunPtrCall,     // cg.add("funname varname")
+    // TODO: ArrayFunPtrCall will be removed
+    // and use GlobalVarFunPtrCall/LocalVarFunPtrCall to instead of it
+    ArrayFunPtrCall,     // cg.add("Array arrname")
+    ParmFunPtrCall,      // cg.add("caller 0") // 0 parm is funptr
+    GlobalVarFunPtrCall, // cg.add("GlobalVar varname")
+    LocalVarFunPtrCall,  // cg.add("funname varname")
     // maybe NULL(0), or IntegerLiteral 1,2...
     NULLFunPtr, // cg.add("NULL")
     OtherCall
@@ -145,16 +147,29 @@ public:
       : _ASTCtx(ctx), _SM(ctx.getSourceManager()), _CfgMgr(cfgmgr){};
   CGNode FromMemberExpr(clang::MemberExpr *ME, bool shouldCheck = true);
   CGNode FromArraySubscriptExpr(clang::ArraySubscriptExpr *ASE,
+                                clang::FunctionDecl *scopeFD,
                                 bool shouldCheck = true);
   CGNode FromDeclRefExpr(clang::DeclRefExpr *DRE, clang::FunctionDecl *scopeFD,
                          bool shouldCheck = true);
   std::pair<CGNode, CGNode>
   FromExpr(clang::Expr *E, clang::FunctionDecl *scopeFD, bool shouldCheck);
-  void FromInitListExpr(clang::InitListExpr *ILE, clang::FunctionDecl *scopeFD,
-                        Ptr2InfoType &_Need2AnalysisPtrInfo,
-                        bool shouldCheck = true);
-  CGNode EmitCGNodeFromVD(clang::VarDecl *VD, clang::SourceManager &_SM,
-                          clang::FunctionDecl *scopeFD);
+
+  /*
+   * Just Handle one VarDecl situation:
+   * 1. Structure Var
+   */
+  void FromStructureInitListExpr(clang::InitListExpr *ILE,
+                                 clang::FunctionDecl *scopeFD,
+                                 Ptr2InfoType &_Need2AnalysisPtrInfo);
+  /*
+   * Handle the follow VarDecl situations:
+   * 1. Global Var: GlobalVarFunPtrCall(scopeFD == nullptr)
+   * 2. Local Var: LocalVarFunPtrCall(scopeFD != nullptr)
+   * 3. Array Var: ArrayFunPtrCall(InitListExpr)
+   */
+  void FromVDNotStructure(clang::VarDecl *VD, clang::FunctionDecl *scopeFD,
+                          Ptr2InfoType &_Need2AnalysisPtrInfo);
+  CGNode EmitCGNodeFromVD(clang::VarDecl *VD, clang::FunctionDecl *scopeFD);
 };
 
 }; // namespace lksast
@@ -205,6 +220,7 @@ public:
   void VisitDeclStmt(clang::DeclStmt *DS);
   void VisitDeclRefExpr(clang::DeclRefExpr *DRE);
   void VisitMemberExpr(clang::MemberExpr *ME);
+  void VisitInitListExpr(clang::InitListExpr *ILE);
   /****************************
    * analysis call graph
    * analysis funptr point-to info
