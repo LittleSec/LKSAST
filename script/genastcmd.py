@@ -150,15 +150,6 @@ for cc in ccjson:
     #     continue
 
     if "-o" in cmdargs:
-        outopt_idx = cmdargs.index("-o")
-        output_old = cmdargs[outopt_idx+1]
-        # This script assumes that the `make` program has been run before running,
-        # so the file path must exist, no need to determine whether the path exists
-        output_new = os.path.splitext(output_old)[0] + astfile_ext
-        if not os.path.isabs(output_old):
-            output_new = os.path.join(directory, output_new)
-        astFile_list.append(output_new)
-        cmdargs[outopt_idx+1] = output_new
         # change C compile into clang and add option `-emit-ast`
         if cmdargs[0][-3:].lower() in ["c++", "g++", "cpp", "cxx"]:
             cmdargs[0] = ' '.join([env_clangplus, clang_emit_ast_opt])
@@ -172,6 +163,17 @@ for cc in ccjson:
               cmdargs[i] = arg[1:-1]
             elif arg.startswith("'") and arg.endswith("'"):
               cmdargs[i] = arg[1:-1]
+        # change -o output file
+        # This script assumes that the `make` program has been run before running,
+        # so the file path must exist, no need to determine whether the path exists
+        outopt_idx = cmdargs.index("-o")
+        output_old = cmdargs[outopt_idx+1]
+        output_new = os.path.splitext(output_old)[0] + astfile_ext
+        if not os.path.isabs(output_old):
+            output_new = os.path.join(directory, output_new)
+        astFile_list.append(output_new)
+        cmdargs[outopt_idx+1] = output_new
+        # join all options into a new cmd
         cmd_exe = ' '.join(cmdargs)
         cmd_exe = cmd_exe.replace('"', r'\"') # e.g. -DMARCO="string", the double quotation marks should be escaped => -DMARCO=\"string\"
         # in Linux Kernel(LLVM=1): 
