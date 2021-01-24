@@ -359,6 +359,9 @@ CGNode FunPtrExtractor::FromMemberExpr(MemberExpr *ME, bool shouldCheck) {
     FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
     assert(fd != nullptr);
     RecordDecl *rd = fd->getParent();
+    if (!_CfgMgr.isNeedToAnalysis(rd)) {
+      return _nullcgnode;
+    }
     CGNode::CallType Ct;
     if (rd->isAnonymousStructOrUnion()) {
       rd = rd->getOuterLexicalRecordContext();

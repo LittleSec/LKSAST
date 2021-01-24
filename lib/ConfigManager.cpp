@@ -262,18 +262,43 @@ bool ConfigManager::isNeedToAnalysis(clang::SourceManager &SM,
   return true;
 }
 
-bool ConfigManager::isNeedToAnalysis(clang::Decl *D) {
-  if (D == nullptr) {
+bool ConfigManager::isNeedToAnalysis(clang::FunctionDecl *FD) {
+  if (FD == nullptr || !FD->hasBody()) {
     return false;
   }
-  if (const clang::FunctionDecl *FD = D->getAsFunction()) {
-    // TODO: ignore builtin
-    std::string funcname = FD->getName().str();
-    if (hasAnalysisFunc_set.find(funcname) != hasAnalysisFunc_set.end()) {
-      // llvm::errs() << "[!] has been handled: [" << funcname << " ]\n";
-      return false;
-    }
+  std::string funcname = FD->getName().str();
+  // TODO: ignore builtin
+  if (funcname.find("__builtin") == 0) {
+    return false;
   }
-  clang::SourceManager &sm = D->getASTContext().getSourceManager();
-  return isNeedToAnalysis(sm, D->getLocation());
+  if (funcname.find("atomic") == 0) {
+    return false;
+  }
+  if (hasAnalysisFunc_set.find(funcname) != hasAnalysisFunc_set.end()) {
+    // llvm::errs() << "[!] has been handled: [" << funcname << " ]\n";
+    return false;
+  }
+  /* Note:
+   * It is decl loc, not defination loc !!!
+   * Because ign path always just include header file,
+   * not include the impl.c file path.
+   */
+  clang::SourceLocation sl = FD->getFirstDecl()->getLocation();
+  clang::SourceManager &sm = FD->getASTContext().getSourceManager();
+  if (isNeedToAnalysis(sm, sl)) {
+    return true;
+  } else {
+    // TODO: not hasAnalysisFunc, is ignFunc
+    // hasAnalysisFunc_set.insert(funcname);
+    return false;
+  }
+}
+
+bool ConfigManager::isNeedToAnalysis(clang::RecordDecl *RD) {
+  if (RD == nullptr) {
+    return false;
+  }
+  clang::SourceLocation sl = RD->getLocation();
+  clang::SourceManager &sm = RD->getASTContext().getSourceManager();
+  return isNeedToAnalysis(sm, sl);
 }
