@@ -33,6 +33,7 @@ public:
     NULLCGNode,             // cast CGNode into bool
     DirectCall,             // cg.add("funname")
     StructMemberFunPtrCall, // cg.add("struct fs.open")
+    UnionMemberFunPtrCall,  // cg.add("union fs.open")
     // TODO: ArrayFunPtrCall will be removed
     // and use GlobalVarFunPtrCall/LocalVarFunPtrCall to instead of it
     ArrayFunPtrCall,     // cg.add("Array arrname")
@@ -55,7 +56,8 @@ public:
   CGNode(CallType t, const std::string &n, const std::string &dl);
   // constructor for ParmFunPtrCall
   CGNode(const std::string &n, size_t parmidx, const std::string &dl);
-  // constructor for StructMemberFunPtrCall/LocalVarFunPtrCall
+  // constructor for
+  // StructMemberFunPtrCall/UnionMemberFunPtrCall/LocalVarFunPtrCall
   CGNode(CallType t, const std::string &n1, const std::string &n2,
          const std::string &dl);
   const char *CallType2String() const;

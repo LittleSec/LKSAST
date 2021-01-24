@@ -48,6 +48,9 @@ CGNode::CGNode(CallType t, const std::string &n1, const std::string &n2,
   case StructMemberFunPtrCall:
     name = "struct " + n1 + "." + n2;
     break;
+  case UnionMemberFunPtrCall:
+    name = "union " + n1 + "." + n2;
+    break;
   case LocalVarFunPtrCall:
     name = n1 + " " + n2;
     break;
@@ -65,6 +68,8 @@ const char *CGNode::CallType2String() const {
     return "DirectCall";
   case StructMemberFunPtrCall:
     return "StructMemberFunPtrCall";
+  case UnionMemberFunPtrCall:
+    return "UnionMemberFunPtrCall";
   case ArrayFunPtrCall:
     return "ArrayFunPtrCall";
   case ParmFunPtrCall:
@@ -308,25 +313,73 @@ FunPtrExtractor::FromExpr(Expr *E, FunctionDecl *scopeFD, bool shouldCheck) {
   return ret;
 }
 
+// FIXME: Unused
+std::string getUnionRDName(MemberExpr *ME, SourceManager &_SM) {
+  Expr *subE = nullptr;
+  std::string ret = "";
+  while (true) {
+    subE = ME->getBase()->IgnoreParenCasts();
+    if (MemberExpr *subME = dyn_cast<MemberExpr>(subE)) {
+      ValueDecl *memdecl = ME->getMemberDecl();
+      FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
+      assert(fd != nullptr); // assert(Decl::Field == memdecl->getKind());
+      RecordDecl *rd = fd->getParent();
+      if (rd->isAnonymousStructOrUnion()) {
+        rd = rd->getOuterLexicalRecordContext();
+      }
+      if (rd->isStruct()) {
+        ret = rd->getName().str() + "::" + ret;
+        break;
+      } else if (rd->isUnion()) {
+        ret = rd->getName().str() + "::" + ret;
+      } else {
+        // ?
+      }
+    } else if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(subE)) {
+      ValueDecl *valdecl = DRE->getDecl();
+      assert(valdecl->getKind() == Decl::Record);
+      if (ret == "") {
+        ret = valdecl->getName().str() + "::" + ret;
+      } else {
+        ret = valdecl->getName().str();
+      }
+      break;
+    } else {
+      llvm::errs() << "[Err] ME->getBase() is not MemberExpr\n";
+      subE->getExprLoc().dump(_SM);
+      subE->dump();
+      break;
+    }
+  }
+}
+
 CGNode FunPtrExtractor::FromMemberExpr(MemberExpr *ME, bool shouldCheck) {
   if (ME == nullptr) {
     return _nullcgnode;
   }
   ValueDecl *memdecl = ME->getMemberDecl();
-  // TODO: anonymous Struct or Union
+  // TODO: anonymous Struct or Union, still has some problems
   if (Decl::Field == memdecl->getKind()) {
     FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
     assert(fd != nullptr);
     RecordDecl *rd = fd->getParent();
-    if (!rd->isStruct()) {
+    CGNode::CallType Ct;
+    if (rd->isAnonymousStructOrUnion()) {
+      rd = rd->getOuterLexicalRecordContext();
+    }
+    if (rd->isStruct()) {
+      Ct = CGNode::CallType::StructMemberFunPtrCall;
+    } else if (rd->isUnion()) {
+      Ct = CGNode::CallType::UnionMemberFunPtrCall;
+    } else {
       // llvm::errs() << "[Unknown][MemberExpr] RecordDecl is not a
       // Structure\n"; rd->getLocation().dump(_SM);
       return _nullcgnode;
     }
     QualType Ty = fd->getType();
     /* Note: 2 */
-    CGNode tmp(CGNode::CallType::StructMemberFunPtrCall, rd->getName().str(),
-               fd->getName().str(), fd->getLocation().printToString(_SM));
+    CGNode tmp(Ct, rd->getName().str(), fd->getName().str(),
+               fd->getLocation().printToString(_SM));
     if (shouldCheck) {
       if (Ty->isFunctionPointerType()) {
         return tmp;
@@ -339,7 +392,7 @@ CGNode FunPtrExtractor::FromMemberExpr(MemberExpr *ME, bool shouldCheck) {
     memdecl->getLocation().dump(_SM);
   }
   return _nullcgnode;
-}
+} // namespace lksast
 
 CGNode FunPtrExtractor::FromArraySubscriptExpr(ArraySubscriptExpr *ASE,
                                                clang::FunctionDecl *scopeFD,
@@ -433,29 +486,44 @@ void FunPtrExtractor::FromStructureInitListExpr(
     }
   }
   QualType Ty = ILE->getType();
+  CGNode::CallType Ct;
+  RecordDecl *rd = nullptr;
+  // if (rd->isAnonymousStructOrUnion()) {
+  //   return _nullcgnode;
+  // }
   if (Ty->isStructureType()) {
-    RecordDecl *rd = Ty->getAsStructureType()->getDecl();
-    if (!_CfgMgr.isNeedToAnalysis(rd)) {
-      return;
+    Ct = CGNode::CallType::StructMemberFunPtrCall;
+    rd = Ty->getAsStructureType()->getDecl();
+  } else if (Ty->isUnionType()) {
+    Ct = CGNode::CallType::UnionMemberFunPtrCall;
+    rd = Ty->getAsUnionType()->getDecl();
+  } else {
+    return;
+  }
+
+  if (!_CfgMgr.isNeedToAnalysis(rd)) {
+    return;
+  }
+  RecordDecl::field_iterator fdit = rd->field_begin(), fded = rd->field_end();
+  // union has only one init
+  for (unsigned int i = 0; i < ILE->getNumInits() && fdit != fded;
+       i++, fdit++) {
+    Expr *IE = ILE->getInit(i);
+    if (isa<ImplicitValueInitExpr>(IE)) {
+      continue;
     }
-    RecordDecl::field_iterator fdit = rd->field_begin(), fded = rd->field_end();
-    for (unsigned int i = 0; i < ILE->getNumInits() && fdit != fded;
-         i++, fdit++) {
-      Expr *IE = ILE->getInit(i);
-      std::pair<CGNode, CGNode> cgnodes = FromExpr(IE, scopeFD, true);
-      CGNode ptee1 = cgnodes.first;
-      CGNode ptee2 = cgnodes.second;
-      if (ptee1 || ptee2) {
-        /* Note: 1 */
-        CGNode pter = CGNode(CGNode::CallType::StructMemberFunPtrCall,
-                             rd->getName().str(), fdit->getName().str(),
-                             fdit->getLocation().printToString(_SM));
-        if (ptee1) {
-          _Need2AnalysisPtrInfo[pter].insert(ptee1);
-        }
-        if (ptee2) {
-          _Need2AnalysisPtrInfo[pter].insert(ptee2);
-        }
+    std::pair<CGNode, CGNode> cgnodes = FromExpr(IE, scopeFD, true);
+    CGNode ptee1 = cgnodes.first;
+    CGNode ptee2 = cgnodes.second;
+    if (ptee1 || ptee2) {
+      /* Note: 1 */
+      CGNode pter = CGNode(Ct, rd->getName().str(), fdit->getName().str(),
+                           fdit->getLocation().printToString(_SM));
+      if (ptee1) {
+        _Need2AnalysisPtrInfo[pter].insert(ptee1);
+      }
+      if (ptee2) {
+        _Need2AnalysisPtrInfo[pter].insert(ptee2);
       }
     }
   }
@@ -528,7 +596,6 @@ void FunPtrExtractor::FromVDNotStructure(VarDecl *VD, FunctionDecl *scopeFD,
   }
   return;
 }
-
 }; // namespace lksast
 
 /* Core */
