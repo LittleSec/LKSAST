@@ -1,0 +1,15 @@
+{
+  "bus_find_device 3": [
+    "device_match_any",
+    "device_match_devt",
+    "device_match_fwnode",
+    "device_match_acpi_dev",
+    "device_match_name",
+    "device_match_of_node"
+  ],
+  "struct trace_event_functions.trace": [
+    "trace_raw_output_cpuhp_exit",
+    "trace_raw_output_cpuhp_enter",
+    "trace_raw_output_cpuhp_multi_enter"
+  ]
+}

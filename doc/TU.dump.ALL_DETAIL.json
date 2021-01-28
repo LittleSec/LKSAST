@@ -13,7 +13,7 @@
         "declloc": "/path/to/struct decl:mm"
       },
       {
-        "CallType": "func ptr array",
+        "CallType": "GlobalVar funptr1",
         "name": "(*func[])()",
         "declloc": "/path/to/struct decl:nn"
       },

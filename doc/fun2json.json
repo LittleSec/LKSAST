@@ -1,0 +1,5 @@
+{
+  "__x64_sys_umount": "/path/to/linux/fs/namespace.ast.json",
+  "__x64_sys_init_module": "/path/to/linux/kernel/module.ast.json",
+  "__x64_sys_mmap": "/path/to/linux/arch/x86/kernel/sys_x86_64.ast.json"
+}

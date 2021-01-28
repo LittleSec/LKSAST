@@ -1,0 +1,15 @@
+Function Info:
+  |- function name 1:
+  |    |- callgraph:
+  |    |    |- struct net_device_ops.ndo_do_ioctl
+  |    |    |- memcpy
+  |    |    |- ...
+  |    |    `-<End of callgraph>
+  |    |- resource:
+  |    |    |- struct net_device.netdev_ops
+  |    |    |- ...
+  |    |    `-<End of resource>
+  |    `-<End of Function: function name 1>
+  |- ...
+  |- ...
+  `-<EOF>
