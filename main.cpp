@@ -98,28 +98,42 @@ int main(int argc, char *argv[]) {
   // cfgmgr.dump();
   ASTManager manager(cfgmgr.getFnAstList());
   Ptr2InfoType Need2AnalysisPtrInfo;
-  std::ofstream fun2jsonfile(cfgmgr.getFnFun2Json());
+  Fun2JsonType fun2json_map;
   for (auto &au : manager.getAstUnits()) {
     llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
     TUAnalyzer analyzer(au, cfgmgr, Need2AnalysisPtrInfo);
     analyzer.check();
     std::string resultfilename = au->getASTFileName().str() + ".json";
-    std::ofstream outfile(resultfilename);
-    analyzer.dumpJSON(outfile);
-    outfile.close();
+    // analyzer.dumpTree(resultfilename);
+    analyzer.dumpJSON(resultfilename, JsonLogV::NORMAL);
+    shared_ptr<std::string> jsonfile =
+        std::make_shared<std::string>(resultfilename);
     for (auto &funres : analyzer.getTUResult()) {
-      fun2jsonfile << funres.funcname << " " << resultfilename << "\n";
+      fun2json_map[funres.funcname] = jsonfile;
     }
   }
-  fun2jsonfile.close();
+  std::string fun2json_fn = cfgmgr.getFnFun2Json();
+  if (fun2json_fn.substr(fun2json_fn.length() - 5) == ".json") {
+    Dumpfun2json2json(fun2json_fn, fun2json_map);
+  } else {
+    Dumpfun2json2txt(fun2json_fn, fun2json_map);
+  }
 
-  std::ofstream outfile(cfgmgr.getFnNeed2AnalysisPtrInfo());
-  DumpPtrInfo2txt(outfile, Need2AnalysisPtrInfo, true);
-  outfile.close();
+  std::string ptrinfo_fn = cfgmgr.getFnNeed2AnalysisPtrInfo();
+  if (ptrinfo_fn.substr(ptrinfo_fn.length() - 5) == ".json") {
+    DumpPtrInfo2json(ptrinfo_fn, Need2AnalysisPtrInfo, JsonLogV::NORMAL);
+  } else {
+    DumpPtrInfo2txt(ptrinfo_fn, Need2AnalysisPtrInfo, true);
+  }
 
   Ptr2InfoType PurePtrInfo;
   analysisPtrInfo(Need2AnalysisPtrInfo, PurePtrInfo);
-  DumpPtrInfo2txt(cfgmgr.getFnHasAnalysisPtrInfo(), PurePtrInfo, true);
+  ptrinfo_fn = cfgmgr.getFnHasAnalysisPtrInfo();
+  if (ptrinfo_fn.substr(ptrinfo_fn.length() - 5) == ".json") {
+    DumpPtrInfo2json(ptrinfo_fn, PurePtrInfo, JsonLogV::FLAT_STRING);
+  } else {
+    DumpPtrInfo2txt(ptrinfo_fn, PurePtrInfo, true);
+  }
 
   llvm::errs() << "hello world\n";
   return 0;

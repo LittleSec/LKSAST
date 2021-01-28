@@ -287,8 +287,10 @@ public:
   bool TraverseFunctionDecl(clang::FunctionDecl *FD); // Traverse
   bool VisitVarDecl(clang::VarDecl *VD);
   bool VisitInitListExpr(clang::InitListExpr *ILE);
-  void dump(std::ofstream &of);
-  void dumpJSON(std::ofstream &of, bool ismin = false);
+  void dumpTree(const std::string &filename);
+  void dumpTree(std::ofstream &of);
+  void dumpJSON(const std::string &filename, JsonLogV V = JsonLogV::NORMAL);
+  void dumpJSON(std::ofstream &of, JsonLogV V = JsonLogV::NORMAL);
   FunctionResultsType &getTUResult() { return TUResult; };
 }; // class TUAnalyzer
 

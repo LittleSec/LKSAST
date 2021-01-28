@@ -15,9 +15,9 @@ c/cpp will get `/home/xxx/path.file` actually.
     "Src2Ast" : "Option, path" // No Default
   },
   "Output" : { // Must
-    "Fun2Json" : "Must, path", // Default: fun2json.txt
-    "Need2AnalysisPtrInfo": "Must, path", // Default: Need2AnalysisPtrInfo.txt
-    "HasAnalysisPtrInfo" : "Must, path" // Default: PtrInfo.txt
+    "Fun2Json" : "Must, path", // Default: fun2json.json
+    "Need2AnalysisPtrInfo": "Must, path", // Default: Need2AnalysisPtrInfo.json
+    "HasAnalysisPtrInfo" : "Must, path" // Default: PtrInfo.json
   },
   "Running" : { // Option
     "IgnorePaths" : [ // Option
@@ -27,6 +27,17 @@ c/cpp will get `/home/xxx/path.file` actually.
   }
 }
 ```
+
+config["Output"]["xxx"] can be `.json` or `.txt`, 
+```
+if file extension == .json, then 
+  result will store with json fmt
+else
+  result will store with normal txt fmt
+end
+```
+
+-----
 
 `class ConfigManager` will make config json fmt like as behind, no matter must/option config. Then when get config from `class ConfigManager`, it can access json without thinking about if json.contain(item), eg.
 Input File:

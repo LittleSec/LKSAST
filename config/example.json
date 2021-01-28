@@ -5,9 +5,9 @@
     "Src2Ast" : "/abspath/to/Downloads/linux-5.8/src2ast.txt"
   },
   "Output" : {
-    "Fun2Json" : "fun2json.txt",
-    "Need2AnalysisPtrInfo": "Need2AnalysisPtrInfo.txt",
-    "HasAnalysisPtrInfo" : "PtrInfo.txt"
+    "Fun2Json" : "fun2json.json",
+    "Need2AnalysisPtrInfo": "Need2AnalysisPtrInfo.json",
+    "HasAnalysisPtrInfo" : "PtrInfo.json"
   },
   "Running" : {
     "IgnorePaths" : [

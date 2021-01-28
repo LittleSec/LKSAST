@@ -31,6 +31,12 @@ template <typename T> struct sharedptrLess {
   };
 };
 
+enum JsonLogV {
+  FLAT_STRING, // minimum
+  NORMAL, // more details than FLAT_STRING
+  ALL_DETAIL // maximum
+};
+
 class ConfigManager {
 public:
   unordered_set<string> hasAnalysisFunc_set;

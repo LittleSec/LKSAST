@@ -58,13 +58,13 @@ void ConfigManager::HandleInputCfg(json &inj) {
 
 void ConfigManager::HandleOutputCfg(json &outj) {
   if (!outj.contains("Fun2Json")) {
-    outj["Fun2Json"] = "fun2json.txt";
+    outj["Fun2Json"] = "fun2json.json";
   }
   if (!outj.contains("Need2AnalysisPtrInfo")) {
-    outj["Need2AnalysisPtrInfo"] = "Need2AnalysisPtrInfo.txt";
+    outj["Need2AnalysisPtrInfo"] = "Need2AnalysisPtrInfo.json";
   }
   if (!outj.contains("HasAnalysisPtrInfo")) {
-    outj["HasAnalysisPtrInfo"] = "PtrInfo.txt";
+    outj["HasAnalysisPtrInfo"] = "PtrInfo.json";
   }
 }
 

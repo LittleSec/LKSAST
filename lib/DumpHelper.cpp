@@ -39,28 +39,83 @@ void DumpPtrInfo2txt(std::ofstream &of, const Ptr2InfoType &ptrinfo,
   }
 }
 
-/*
-Need to analysis function pointer:
-  |- Array gifconf_list --> [register_gifconf 1, ]
-  |- struct pernet_operations.init --> [netdev_init, ]
-  `-<EOF>
-Function Info:
-  |- function name 1:
-  |    |- callgraph:
-  |    |    |- struct net_device_ops.ndo_do_ioctl
-  |    |    |- memcpy
-  |    |    |- ...
-  |    |    `-<End of callgraph>
-  |    |- resource:
-  |    |    |- struct net_device.netdev_ops
-  |    |    |- ...
-  |    |    `-<End of resource>
-  |    `-<End of Function: function name 1>
-  |- ...
-  |- ...
-  `-<EOF>
-*/
-void TUAnalyzer::dump(std::ofstream &of) {
+void DumpPtrInfo2json(const std::string &filename, const Ptr2InfoType &ptrinfo,
+                      JsonLogV V) {
+  std::ofstream outfile(filename);
+  DumpPtrInfo2json(outfile, ptrinfo, V);
+  outfile.close();
+}
+
+void DumpPtrInfo2json(std::ofstream &of, const Ptr2InfoType &ptrinfo,
+                      JsonLogV V) {
+  json topj;
+  for (auto &info : ptrinfo) {
+    json pteesj = json::array();
+    // FIXME: maybe consider logV for topj
+    for (auto &ptee : info.second) {
+      if (V == JsonLogV::FLAT_STRING) {
+        pteesj.push_back(ptee.name);
+      } else {
+        json pteej;
+        pteej["name"] = ptee.name;
+        switch (V) {
+        case JsonLogV::FLAT_STRING:
+          llvm::errs() << "[!] DumpPtrInfo2json() Not reach here\n";
+          break;
+        case JsonLogV::ALL_DETAIL:
+          pteej["declloc"] = ptee.declloc;
+        case JsonLogV::NORMAL:
+          pteej["CallType"] = ptee.CallType2String();
+          break;
+        default:
+          llvm::errs()
+              << "[!] Forget fill DumpPtrInfo2json() funciton when add "
+                 "a new enum JsonLogV type\n";
+          break;
+        }
+        pteesj.push_back(pteej);
+      }
+    }
+    topj[info.first.name] = pteesj;
+  }
+  of << std::setw(2) << topj << "\n";
+}
+
+void Dumpfun2json2txt(const std::string &filename,
+                      const Fun2JsonType &mapinfo) {
+  std::ofstream outfile(filename);
+  Dumpfun2json2txt(outfile, mapinfo);
+  outfile.close();
+}
+
+void Dumpfun2json2txt(std::ofstream &of, const Fun2JsonType &mapinfo) {
+  for (auto &kv : mapinfo) {
+    of << kv.first << " " << *(kv.second) << "\n";
+  }
+}
+
+void Dumpfun2json2json(const std::string &filename,
+                       const Fun2JsonType &mapinfo) {
+  std::ofstream outfile(filename);
+  Dumpfun2json2json(outfile, mapinfo);
+  outfile.close();
+}
+
+void Dumpfun2json2json(std::ofstream &of, const Fun2JsonType &mapinfo) {
+  json j;
+  for (auto &kv : mapinfo) {
+    j[kv.first] = *(kv.second);
+  }
+  of << std::setw(2) << j << "\n";
+}
+
+void TUAnalyzer::dumpTree(const std::string &filename) {
+  std::ofstream outfile(filename);
+  dumpTree(outfile);
+  outfile.close();
+}
+
+void TUAnalyzer::dumpTree(std::ofstream &of) {
   of << "Function Info:\n";
   for (auto &tures : TUResult) {
     of << "  |- " << tures.funcname << ":\n";
@@ -80,11 +135,23 @@ void TUAnalyzer::dump(std::ofstream &of) {
   of << "\n";
 }
 
-void TUAnalyzer::dumpJSON(std::ofstream &of, bool ismin) {
+void TUAnalyzer::dumpJSON(const std::string &filename, JsonLogV V) {
+  std::ofstream outfile(filename);
+  dumpJSON(outfile);
+  outfile.close();
+}
+
+void TUAnalyzer::dumpJSON(std::ofstream &of, JsonLogV V) {
+  if (V == JsonLogV::FLAT_STRING) {
+    llvm::errs()
+        << "[!] TUAnalyzer::dumpJSON() does not have LogV FLAT_STRING,\n"
+        << "    and here use logV NORMAL.\n";
+    V = JsonLogV::NORMAL;
+  }
   json topj;
   for (auto &tures : TUResult) {
     json funj;
-    if (!ismin) {
+    if (V == JsonLogV::ALL_DETAIL) {
       funj["declloc"] = tures.declloc;
     }
     funj["callgraph"] = json::array();
@@ -92,7 +159,7 @@ void TUAnalyzer::dumpJSON(std::ofstream &of, bool ismin) {
       json cgnodej;
       cgnodej["CallType"] = cgn.CallType2String();
       cgnodej["name"] = cgn.name;
-      if (!ismin) {
+      if (V == JsonLogV::ALL_DETAIL) {
         cgnodej["declloc"] = cgn.declloc;
       }
       funj["callgraph"].push_back(cgnodej);
@@ -107,7 +174,7 @@ void TUAnalyzer::dumpJSON(std::ofstream &of, bool ismin) {
     }
     topj[tures.funcname] = funj;
   }
-  of << std::setw(2) << topj;
+  of << std::setw(2) << topj << "\n";
 }
 
 } // namespace lksast
