@@ -820,10 +820,14 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
   } // is DirectCallee?
 }
 
+#define ASM_DEBUG 0
+
 void StmtLhsRhsAnalyzer::Visit(Stmt *S) {
+#if ASM_DEBUG
   if (hasAsm) {
     return;
   }
+#endif
   StmtVisitor<StmtLhsRhsAnalyzer>::Visit(S); // visit father first
   for (auto *Child : S->children()) {
     if (Child) {
@@ -834,11 +838,15 @@ void StmtLhsRhsAnalyzer::Visit(Stmt *S) {
 }
 
 void StmtLhsRhsAnalyzer::VisitAsmStmt(AsmStmt *AS) {
-  hasAsm = true;
-  _CfgMgr.ignoredFunc_set.insert(_ScopeFD->getName().str());
-  llvm::errs() << "[!] Warning, function body [ " << _Result.funcname
-               << " ] has ASM Code!\n";
-  llvm::errs() << "  `-[!] " << AS->getAsmLoc().printToString(_SM) << "\n";
+  if (!hasAsm) {
+    hasAsm = true;
+#if ASM_DEBUG
+    _CfgMgr.ignoredFunc_set.insert(_ScopeFD->getName().str());
+#endif
+    llvm::errs() << "[!] Warning, function body [ " << _Result.funcname
+                 << " ] has ASM Code!\n";
+    llvm::errs() << "  `-[!] " << AS->getAsmLoc().printToString(_SM) << "\n";
+  }
 }
 
 #endif /* StmtLhsRhsAnalyzer_METHODS */
@@ -862,11 +870,11 @@ void FunctionAnalyzer::AnalysisParms() {
 }
 
 void FunctionAnalyzer::AnalysisPoint2InfoWithBOAssign(Expr *lhs, Expr *rhs) {
-  /*
-    FIXME?:
-    eg. struct fsop1->open = struct fsop2->open.
-    will make analysis in a dead loop?
-  */
+  /* Note:
+   * eg. struct fsop1->open = struct fsop2->open.
+   * will make analysis in a dead loop?
+   * analysisPtrInfo() fixed-point algorithm will handle this situation.
+   */
   bool checkAgain = true;
   CGNode pter;
   std::pair<CGNode, CGNode> cgnodes = _FptrExtractor.FromExpr(rhs, _FD, true);
@@ -933,9 +941,10 @@ void FunctionAnalyzer::AnalysisWithCFG() {
          bi != be; ++bi) {
       if (llvm::Optional<CFGStmt> CS = bi->getAs<CFGStmt>()) {
         const Stmt *stmt = CS->getStmt();
-        if (const AsmStmt *AS = dyn_cast<AsmStmt>(stmt)) {
-          break;
-        } else if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(stmt)) {
+        // if (const AsmStmt *AS = dyn_cast<AsmStmt>(stmt)) {
+        //   break;
+        // } else
+        if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(stmt)) {
           Expr *lhs = BO->getLHS();
           Expr *rhs = BO->getRHS();
           if (BO->getOpcode() == BO_Assign) {
