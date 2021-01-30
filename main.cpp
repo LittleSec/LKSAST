@@ -23,6 +23,15 @@ bool hasDoneAnalysis(const CGsType &ptees) {
   return true;
 }
 
+bool hasDoneAnalysis(const Ptr2InfoType &src) {
+  for (auto &info : src) {
+    if (false == hasDoneAnalysis(info.second)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // src, not &src
 void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
   tgr.clear();
@@ -107,6 +116,70 @@ void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
   }
 }
 
+// Maybe this algorithm is the correct fixed point algorithm
+void analysisPtrInfo(Ptr2InfoType &src) {
+  bool isAllDirect = false;
+  for (unsigned int i = 0, looptime = src.size() >> 2; i < looptime; i++) {
+    // Check if all pointers have clear pointees
+    if (isAllDirect = hasDoneAnalysis(src)) {
+      break;
+    }
+    // start the iteration
+    llvm::errs() << "iter #" << i << "\n";
+    for (auto &info : src) {
+      CGsType &curptees = info.second;
+      CGsType shouldbeinsert;
+      for (CGsType::iterator ptee = curptees.begin(), cged = curptees.end();
+           ptee != cged;) { // for (init; condition; post), post is empty
+        if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
+          auto findptees = src.find(*ptee);
+          if (findptees != src.end()) {
+            for (auto &n : findptees->second) {
+              if (n == info.first) {
+              } else {
+                shouldbeinsert.insert(n);
+              }
+            }
+            ptee = curptees.erase(ptee);
+          } else {
+            if (src.find(*ptee) == src.end()) {
+              ptee = curptees.erase(ptee);
+            } else if (*ptee == info.first) {
+              ptee = curptees.erase(ptee);
+            } else {
+              ptee++;
+            }
+          }
+        } else {
+          ptee++;
+        }
+      }
+      for (auto &insertptee : shouldbeinsert) {
+        curptees.insert(insertptee);
+      }
+    }
+  } // main loop
+  if (isAllDirect) {
+    llvm::errs() << "[+] All pointers have clear pointees\n";
+  } else {
+    llvm::errs() << "[!] End iteration to analysis, these func ptrs have not "
+                    "actually ptees:\n";
+    for (auto &info : src) {
+      if (false == hasDoneAnalysis(info.second)) {
+        llvm::errs() << info.first.name << " --> ";
+        for (auto &ptee : info.second) {
+          if (ptee.type != ptee.DirectCall && ptee.type != ptee.NULLFunPtr) {
+            llvm::errs() << ptee.name << " # ";
+          }
+        }
+        llvm::errs() << "\n";
+      } else {
+        continue;
+      }
+    }
+  } // if (isAllDirect)
+}
+
 int main(int argc, char *argv[]) {
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmParser();
@@ -153,8 +226,10 @@ int main(int argc, char *argv[]) {
     DumpPtrInfo2txt(ptrinfo_fn, Need2AnalysisPtrInfo, true);
   }
 
-  Ptr2InfoType PurePtrInfo;
-  analysisPtrInfo(Need2AnalysisPtrInfo, PurePtrInfo);
+  // Ptr2InfoType PurePtrInfo;
+  // analysisPtrInfo(Need2AnalysisPtrInfo, PurePtrInfo);
+  Ptr2InfoType PurePtrInfo = Need2AnalysisPtrInfo;
+  analysisPtrInfo(PurePtrInfo);
   ptrinfo_fn = cfgmgr.getFnHasAnalysisPtrInfo();
   if (ptrinfo_fn.substr(ptrinfo_fn.length() - 5) == ".json") {
     DumpPtrInfo2json(ptrinfo_fn, PurePtrInfo, JsonLogV::FLAT_STRING);
