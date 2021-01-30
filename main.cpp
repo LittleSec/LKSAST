@@ -14,49 +14,69 @@ using namespace clang;
 
 #define USAGE "Usage: ./bin config.json\n"
 
+bool hasDoneAnalysis(const CGsType &ptees) {
+  for (auto &ptee : ptees) {
+    if (ptee.type != ptee.DirectCall && ptee.type != ptee.NULLFunPtr) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // src, not &src
 void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
   tgr.clear();
-  unsigned int cnt = 0;
+  unsigned int cnt = src.size(), lastcnt = 0, looptime = 0;
   bool isAllDirect;
   while (!src.empty()) {
-    if (cnt > 20) {
+    if (cnt == lastcnt) {
       break;
     }
+    lastcnt = cnt;
     // insert tgr and remove src
     for (Ptr2InfoType::iterator info = src.begin(), ed = src.end();
-         info != ed;) {
-      CGsType &curptees = info->second;
-      isAllDirect = true;
-      for (auto &ptee : curptees) {
-        if (ptee.type != ptee.DirectCall && ptee.type != ptee.NULLFunPtr) {
-          isAllDirect = false;
-          break;
-        }
-      }
-      if (isAllDirect) {
+         info != ed;) { // for (init; condition; post), post is empty
+      if (hasDoneAnalysis(info->second)) {
         tgr.insert(*info);
         info = src.erase(info);
       } else {
         info++;
       }
     }
-    llvm::errs() << "iter " << cnt++ << ", src.size() = " << src.size() << "\n";
+    llvm::errs() << "iter " << looptime++ << ", src.size() = " << src.size()
+                 << "\n";
     // update src
     for (auto &info : src) {
       CGsType &curptees = info.second;
       CGsType shouldbeinsert;
       for (CGsType::iterator ptee = curptees.begin(), cged = curptees.end();
-           ptee != cged;) {
+           ptee != cged;) { // for (init; condition; post), post is empty
         if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
           auto findptees = tgr.find(*ptee);
           if (findptees != tgr.end()) {
             for (auto &n : findptees->second) {
-              shouldbeinsert.insert(n);
+              /* Note:
+               * may have Circular reference?
+               */
+              if (n == info.first) {
+              } else {
+                shouldbeinsert.insert(n);
+              }
             }
             ptee = curptees.erase(ptee);
           } else {
-            ptee++;
+            /* Note:
+             * not find in tgr, and not find in src
+             * means do not has this funptr(eg. not in compiledb.json)
+             * so here remove it, too.
+             */
+            if (src.find(*ptee) == src.end()) {
+              ptee = curptees.erase(ptee);
+            } else if (*ptee == info.first) {
+              ptee = curptees.erase(ptee);
+            } else {
+              ptee++;
+            }
           }
         } else {
           ptee++;
@@ -66,17 +86,24 @@ void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
         curptees.insert(insertptee);
       }
     }
+    cnt = src.size();
   } // while (!src.empty())
   if (!src.empty()) {
     llvm::errs() << "[!] End iteration to analysis, these func ptrs have not "
                     "actually ptees:\n";
     for (auto &info : src) {
       llvm::errs() << info.first.name << " --> ";
-      for (auto &ptee : info.second) {
-        llvm::errs() << ptee.name << " # ";
+      if (info.second.empty()) {
+        llvm::errs() << "[ Empty pointees ] # ";
+      } else {
+        for (auto &ptee : info.second) {
+          llvm::errs() << ptee.name << " # ";
+        }
       }
       llvm::errs() << "\n";
     }
+  } else {
+    llvm::errs() << "[+] All pointers have clear pointees\n";
   }
 }
 
