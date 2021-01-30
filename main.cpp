@@ -196,10 +196,14 @@ int main(int argc, char *argv[]) {
 
   ConfigManager cfgmgr(argv[1]);
   // cfgmgr.dump();
-  ASTManager manager(cfgmgr.getFnAstList());
+  ASTManager manager(cfgmgr.getFnAstList(), true);
   Ptr2InfoType Need2AnalysisPtrInfo;
   Fun2JsonType fun2json_map;
-  for (auto &au : manager.getAstUnits()) {
+  for (auto &af : manager.getAstFiles()) {
+    std::unique_ptr<ASTUnit> au = manager.loadAUFromAF(af);
+    if (au == nullptr) {
+      continue;
+    }
     llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
     TUAnalyzer analyzer(au, cfgmgr, Need2AnalysisPtrInfo);
     analyzer.check();
