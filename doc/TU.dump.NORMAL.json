@@ -1,37 +1,17 @@
 {
   "function name1": {
-    "callgraph": [
-      {
-        "CallType": "direct",
-        "name": "func1"
-      },
-      {
-        "CallType": "struct member",
-        "name": "struct fs, ->open, field idx"
-      },
-      {
-        "CallType": "func ptr array",
-        "name": "(*func[])()"
-      },
-      {
-        "CallType": "other(for debug)",
-        "name": "(*ptr)()"
-      }
-    ],
-    "resource access": [
-      {
-        "name" : "struct task_struct->mm",
-        "ResourceType" : "StructMember",
-        "AccessType" : "W"
-      },
-      {
-        "name": "global val",
-        "ResourceType": "GlobalVal",
-        "AccessType": "R"
-      }
-    ]
+    "callgraph": {
+      "func1": "DirectCall",
+      "struct fs.open": "StructMemberFunPtrCall",
+      "GlobalVar compound_page_dtors": "GlobalVarFunPtrCall",
+      "devm_add_action_or_reset 1": "ParmFunPtrCall"
+    },
+    "resource_access": {
+      "struct task_struct->mm": "W",
+      "global val": "R/W"
+    }
   },
-  "function name2" : {
+  "function name2": {
 
   }
 }

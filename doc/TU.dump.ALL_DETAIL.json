@@ -23,7 +23,7 @@
         "declloc": "/path/to/ptr decl:mm"
       }
     ],
-    "resource access": [
+    "resource_access": [
       {
         "name" : "struct task_struct->mm",
         "ResourceType" : "StructMember",

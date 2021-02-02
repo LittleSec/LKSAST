@@ -1,42 +1,15 @@
 {
-  "bus_find_device 3": [
-    {
-      "CallType": "DirectCall",
-      "name": "device_match_any"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "device_match_devt"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "device_match_fwnode"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "device_match_acpi_dev"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "device_match_name"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "device_match_of_node"
-    }
-  ],
-  "struct trace_event_functions.trace": [
-    {
-      "CallType": "DirectCall",
-      "name": "trace_raw_output_cpuhp_exit"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "trace_raw_output_cpuhp_enter"
-    },
-    {
-      "CallType": "DirectCall",
-      "name": "trace_raw_output_cpuhp_multi_enter"
-    }
-  ]
+  "bus_find_device 3": {
+    "device_match_any": "DirectCall",
+    "device_match_devt": "DirectCall",
+    "device_match_fwnode": "DirectCall",
+    "device_match_acpi_dev": "DirectCall",
+    "device_match_name": "DirectCall",
+    "device_match_of_node": "DirectCall"
+  },
+  "struct trace_event_functions.trace": {
+    "trace_raw_output_cpuhp_exit": "DirectCall",
+    "trace_raw_output_cpuhp_enter": "DirectCall",
+    "trace_raw_output_cpuhp_multi_enter": "DirectCall"
+  }
 }

@@ -50,31 +50,29 @@ void DumpPtrInfo2json(std::ofstream &of, const Ptr2InfoType &ptrinfo,
                       JsonLogV V) {
   json topj;
   for (auto &info : ptrinfo) {
-    json pteesj = json::array();
+    json pteesj;
     // FIXME: maybe consider logV for topj
-    for (auto &ptee : info.second) {
-      if (V == JsonLogV::FLAT_STRING) {
+    if (V == JsonLogV::FLAT_STRING) {
+      pteesj = json::array();
+      for (auto &ptee : info.second) {
         pteesj.push_back(ptee.name);
-      } else {
+      }
+    } else if (V == JsonLogV::ALL_DETAIL) {
+      pteesj = json::array();
+      for (auto &ptee : info.second) {
         json pteej;
         pteej["name"] = ptee.name;
-        switch (V) {
-        case JsonLogV::FLAT_STRING:
-          llvm::errs() << "[!] DumpPtrInfo2json() Not reach here\n";
-          break;
-        case JsonLogV::ALL_DETAIL:
-          pteej["declloc"] = ptee.declloc;
-        case JsonLogV::NORMAL:
-          pteej["CallType"] = ptee.CallType2String();
-          break;
-        default:
-          llvm::errs()
-              << "[!] Forget fill DumpPtrInfo2json() funciton when add "
-                 "a new enum JsonLogV type\n";
-          break;
-        }
+        pteej["declloc"] = ptee.declloc;
+        pteej["CallType"] = ptee.CallType2String();
         pteesj.push_back(pteej);
       }
+    } else if (V == JsonLogV::NORMAL) {
+      for (auto &ptee : info.second) {
+        pteesj[ptee.name] = ptee.CallType2String();
+      }
+    } else {
+      llvm::errs() << "[-] Err, Forget fill DumpPtrInfo2json() funciton when "
+                      "add a new enum JsonLogV type\n";
     }
     topj[info.first.name] = pteesj;
   }
@@ -153,24 +151,45 @@ void TUAnalyzer::dumpJSON(std::ofstream &of, JsonLogV V) {
     json funj;
     if (V == JsonLogV::ALL_DETAIL) {
       funj["declloc"] = tures.declloc;
-    }
-    funj["callgraph"] = json::array();
-    for (auto &cgn : tures._Callees) {
-      json cgnodej;
-      cgnodej["CallType"] = cgn.CallType2String();
-      cgnodej["name"] = cgn.name;
-      if (V == JsonLogV::ALL_DETAIL) {
+      funj["callgraph"] = json::array();
+      funj["resource_access"] = json::array();
+      for (auto &cgn : tures._Callees) {
+        json cgnodej;
+        cgnodej["CallType"] = cgn.CallType2String();
+        cgnodej["name"] = cgn.name;
         cgnodej["declloc"] = cgn.declloc;
+        funj["callgraph"].push_back(cgnodej);
       }
-      funj["callgraph"].push_back(cgnodej);
-    }
-    funj["resource access"] = json::array();
-    for (auto &reso : tures._Resources) {
+      for (auto &reso : tures._Resources) {
+        json resj;
+        resj["name"] = reso.name;
+        resj["ResourceType"] = reso.ResourceType2String();
+        resj["AccessType"] = reso.AccessType2String();
+        funj["resource_access"].push_back(resj);
+      }
+    } else if (V == JsonLogV::NORMAL) {
+      json cgnodej;
       json resj;
-      resj["name"] = reso.name;
-      resj["ResourceType"] = reso.ResourceType2String();
-      resj["AccessType"] = reso.AccessType2String();
-      funj["resource access"].push_back(resj);
+      for (auto &cgn : tures._Callees) {
+        cgnodej[cgn.name] = cgn.CallType2String();
+      }
+      for (auto &reso : tures._Resources) {
+        if (resj.contains(reso.name)) {
+          const std::string &srcAT = resj[reso.name].get<std::string>();
+          const std::string &tgrAT = reso.AccessType2String();
+          if ((srcAT == "W" && tgrAT == "R") ||
+              (srcAT == "R" && tgrAT == "W")) {
+            resj[reso.name] = "R/W";
+          }
+        } else {
+          resj[reso.name] = reso.AccessType2String();
+        }
+      }
+      funj["callgraph"] = cgnodej;
+      funj["resource_access"] = resj;
+    } else {
+      llvm::errs() << "[-] Err, Forget fill TUAnalyzer::dumpJSON() funciton "
+                      "when add a new enum JsonLogV type\n";
     }
     topj[tures.funcname] = funj;
   }
