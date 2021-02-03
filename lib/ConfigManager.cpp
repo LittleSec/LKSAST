@@ -294,14 +294,42 @@ bool ConfigManager::isNeedToAnalysis(clang::FunctionDecl *FD) {
   }
 }
 
-bool ConfigManager::isNeedToAnalysis(clang::RecordDecl *RD) {
+bool ConfigManager::isNeedToAnalysis(clang::RecordDecl *RD, bool isFunPtr) {
   if (RD == nullptr) {
     return false;
   }
   if (RD->getName().startswith("pt_regs")) {
     return false;
   }
+  if (isFunPtr == false) {
+    if (RD->getName().startswith("trace_event_raw")) {
+      return false;
+    }
+  }
   clang::SourceLocation sl = RD->getLocation();
   clang::SourceManager &sm = RD->getASTContext().getSourceManager();
+  return isNeedToAnalysis(sm, sl);
+}
+
+bool ConfigManager::isNeedToAnalysis(clang::FieldDecl *FD, bool isFunPtr) {
+  if (FD == nullptr) {
+    return false;
+  }
+  if (FD->getName().startswith("pt_regs")) {
+    return false;
+  }
+  if (isFunPtr == false) {
+    if (FD->getName().startswith("trace_event_raw")) {
+      return false;
+    }
+  }
+  clang::QualType Ty = FD->getType();
+  if (clang::RecordDecl *rd = Ty->getAsRecordDecl()) {
+    if (isNeedToAnalysis(rd, isFunPtr) == false) {
+      return false;
+    }
+  }
+  clang::SourceLocation sl = FD->getLocation();
+  clang::SourceManager &sm = FD->getASTContext().getSourceManager();
   return isNeedToAnalysis(sm, sl);
 }

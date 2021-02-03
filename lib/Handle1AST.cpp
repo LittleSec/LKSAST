@@ -357,14 +357,17 @@ CGNode FunPtrExtractor::FromMemberExpr(MemberExpr *ME, bool shouldCheck) {
   // TODO: anonymous Struct or Union, still has some problems
   if (Decl::Field == memdecl->getKind()) {
     FieldDecl *fd = dyn_cast<FieldDecl>(memdecl);
-    assert(fd != nullptr);
-    RecordDecl *rd = fd->getParent();
-    if (!_CfgMgr.isNeedToAnalysis(rd)) {
+    if (!_CfgMgr.isNeedToAnalysis(fd, true)) {
       return _nullcgnode;
     }
+    // assert(fd != nullptr); // if fd == nullptr, isNeedToAnalysis return false
+    RecordDecl *rd = fd->getParent();
     CGNode::CallType Ct;
     if (rd->isAnonymousStructOrUnion()) {
       rd = rd->getOuterLexicalRecordContext();
+    }
+    if (!_CfgMgr.isNeedToAnalysis(rd, true)) {
+      return _nullcgnode;
     }
     if (rd->isStruct()) {
       Ct = CGNode::CallType::StructMemberFunPtrCall;
@@ -500,7 +503,7 @@ void FunPtrExtractor::FromStructureInitListExpr(
     return;
   }
 
-  if (!_CfgMgr.isNeedToAnalysis(rd)) {
+  if (!_CfgMgr.isNeedToAnalysis(rd, true)) {
     return;
   }
   RecordDecl::field_iterator fdit = rd->field_begin(), fded = rd->field_end();
@@ -703,6 +706,9 @@ void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
   // struct fs->struct fsop->...(all of fields in fsop is funcptr)
   ValueDecl *memdecl = ME->getMemberDecl();
   if (FieldDecl *fd = dyn_cast<FieldDecl>(memdecl)) {
+    if (!_CfgMgr.isNeedToAnalysis(fd)) {
+      return;
+    }
     RecordDecl *rd = fd->getParent();
     if (!rd->isStruct()) { // maybe a union
       return;

@@ -33,8 +33,8 @@ template <typename T> struct sharedptrLess {
 
 enum JsonLogV {
   FLAT_STRING, // minimum
-  NORMAL, // more details than FLAT_STRING
-  ALL_DETAIL // maximum
+  NORMAL,      // more details than FLAT_STRING
+  ALL_DETAIL   // maximum
 };
 
 class ConfigManager {
@@ -47,7 +47,8 @@ public:
   void dump(); // for debug
   bool isNeedToAnalysis(clang::SourceManager &SM, clang::SourceLocation SL);
   bool isNeedToAnalysis(clang::FunctionDecl *FD);
-  bool isNeedToAnalysis(clang::RecordDecl *RD);
+  bool isNeedToAnalysis(clang::RecordDecl *RD, bool isFunPtr = false);
+  bool isNeedToAnalysis(clang::FieldDecl *FD, bool isFunPtr = false);
   bool isSyscall(const std::string &funcname);
   std::string getFnAstList() {
     return configJson["Input"]["AstList"].get<std::string>();
