@@ -660,6 +660,9 @@ void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
       Ty = convertype->getCanonicalTypeInternal();
     }
     if (Ty->isStructureType()) {
+      if (!_CfgMgr.isNeedToAnalysis(Ty->getAsRecordDecl())) {
+        return;
+      }
       if (VD->hasInit()) {
         ResourceAccessNode tmp(ResourceAccessNode::ResourceType::Structure,
                                _AccType, VD->getName().str());
@@ -702,6 +705,9 @@ void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
   if (FieldDecl *fd = dyn_cast<FieldDecl>(memdecl)) {
     RecordDecl *rd = fd->getParent();
     if (!rd->isStruct()) { // maybe a union
+      return;
+    }
+    if (!_CfgMgr.isNeedToAnalysis(rd)) {
       return;
     }
     ResourceAccessNode tmp(rd->getName().str(), fd->getName().str(), _AccType);

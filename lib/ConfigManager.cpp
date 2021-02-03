@@ -298,6 +298,9 @@ bool ConfigManager::isNeedToAnalysis(clang::RecordDecl *RD) {
   if (RD == nullptr) {
     return false;
   }
+  if (RD->getName().startswith("pt_regs")) {
+    return false;
+  }
   clang::SourceLocation sl = RD->getLocation();
   clang::SourceManager &sm = RD->getASTContext().getSourceManager();
   return isNeedToAnalysis(sm, sl);
