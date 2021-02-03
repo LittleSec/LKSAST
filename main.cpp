@@ -32,6 +32,23 @@ bool hasDoneAnalysis(const Ptr2InfoType &src) {
   return true;
 }
 
+void removeUnExistAndSelfLoopPtr(Ptr2InfoType &src) {
+  for (auto &info : src) {
+    CGsType &curptees = info.second;
+    for (CGsType::iterator ptee = curptees.begin(); ptee != curptees.end();) {
+      if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
+        if (src.find(*ptee) == src.end() || *ptee == info.first) {
+          ptee = curptees.erase(ptee);
+        } else {
+          ptee++;
+        }
+      } else {
+        ptee++;
+      }
+    }
+  }
+}
+
 // src, not &src
 void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
   tgr.clear();
@@ -43,8 +60,8 @@ void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
     }
     lastcnt = cnt;
     // insert tgr and remove src
-    for (Ptr2InfoType::iterator info = src.begin(), ed = src.end();
-         info != ed;) { // for (init; condition; post), post is empty
+    for (Ptr2InfoType::iterator info = src.begin(); info != src.end();) {
+      // for (init; condition; post), post is empty
       if (hasDoneAnalysis(info->second)) {
         tgr.insert(*info);
         info = src.erase(info);
@@ -58,34 +75,18 @@ void analysisPtrInfo(Ptr2InfoType src, Ptr2InfoType &tgr) {
     for (auto &info : src) {
       CGsType &curptees = info.second;
       CGsType shouldbeinsert;
-      for (CGsType::iterator ptee = curptees.begin(), cged = curptees.end();
-           ptee != cged;) { // for (init; condition; post), post is empty
+      for (CGsType::iterator ptee = curptees.begin(); ptee != curptees.end();) {
+        // for (init; condition; post), post is empty
         if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
           auto findptees = tgr.find(*ptee);
           if (findptees != tgr.end()) {
+            // all CGNodes in tgr are DirectCall/NULLFunPtr
             for (auto &n : findptees->second) {
-              /* Note:
-               * may have Circular reference?
-               */
-              if (n == info.first) {
-              } else {
-                shouldbeinsert.insert(n);
-              }
+              shouldbeinsert.insert(n);
             }
             ptee = curptees.erase(ptee);
           } else {
-            /* Note:
-             * not find in tgr, and not find in src
-             * means do not has this funptr(eg. not in compiledb.json)
-             * so here remove it, too.
-             */
-            if (src.find(*ptee) == src.end()) {
-              ptee = curptees.erase(ptee);
-            } else if (*ptee == info.first) {
-              ptee = curptees.erase(ptee);
-            } else {
-              ptee++;
-            }
+            ptee++;
           }
         } else {
           ptee++;
@@ -129,31 +130,40 @@ void analysisPtrInfo(Ptr2InfoType &src) {
     for (auto &info : src) {
       CGsType &curptees = info.second;
       CGsType shouldbeinsert;
-      for (CGsType::iterator ptee = curptees.begin(), cged = curptees.end();
-           ptee != cged;) { // for (init; condition; post), post is empty
-        if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
-          auto findptees = src.find(*ptee);
+      // Get/Collect ptees to replace
+      for (const CGNode &ptee : curptees) {
+        if (ptee.type != ptee.DirectCall && ptee.type != ptee.NULLFunPtr) {
+          auto findptees = src.find(ptee);
           if (findptees != src.end()) {
-            for (auto &n : findptees->second) {
-              if (n == info.first) {
+            for (const CGNode &n : findptees->second) {
+              /* Note:
+               * DO NOT curptees.erase(ptee) here,
+               * because findptees and curptees may have same FunPtr,
+               * it will make the Circular reference.
+               * See this if conditions
+               */
+              if (n == info.first || curptees.find(n) != curptees.end()) {
               } else {
                 shouldbeinsert.insert(n);
               }
             }
-            ptee = curptees.erase(ptee);
-          } else {
-            if (src.find(*ptee) == src.end()) {
-              ptee = curptees.erase(ptee);
-            } else if (*ptee == info.first) {
-              ptee = curptees.erase(ptee);
-            } else {
-              ptee++;
-            }
           }
+        }
+      }
+      // Remove the replaced ptees
+      for (CGsType::iterator ptee = curptees.begin(); ptee != curptees.end();) {
+        /* Note:
+         * for (init; condition; post), post is empty
+         * DO NOT use (cged = curptees.end(); ptee != cged),
+         * becaise curptees.end() may change, too.
+         */
+        if (ptee->type != ptee->DirectCall && ptee->type != ptee->NULLFunPtr) {
+          ptee = curptees.erase(ptee);
         } else {
           ptee++;
         }
       }
+      // Replace them
       for (auto &insertptee : shouldbeinsert) {
         curptees.insert(insertptee);
       }
@@ -230,6 +240,7 @@ int main(int argc, char *argv[]) {
     DumpPtrInfo2txt(ptrinfo_fn, Need2AnalysisPtrInfo, true);
   }
 
+  removeUnExistAndSelfLoopPtr(Need2AnalysisPtrInfo);
   // Ptr2InfoType PurePtrInfo;
   // analysisPtrInfo(Need2AnalysisPtrInfo, PurePtrInfo);
   Ptr2InfoType PurePtrInfo = Need2AnalysisPtrInfo;
