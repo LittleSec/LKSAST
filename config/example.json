@@ -16,6 +16,7 @@
       "include/asm-generic/*",
       "linux/kernel.h",
       "include/uapi/linux/byteorder",
+      "include/uapi/linux/byteorder/*",
       "include/linux/byteorder",
       "include/linux/types.h",
       "include/linux/bit",
@@ -40,10 +41,18 @@
       "include/linux/rbtree",
       "include/linux/rbtree*.h",
       "include/linux/kfifo.h",
+      "include/linux/hash",
+      "include/linux/hash*.h",
+      "include/linux/rhashtable",
+      "include/linux/rhashtable*.h",
+      "include/linux/siphash.h",
+      "include/linux/jhash.h",
       "kernel/rcu",
       "kernel/rcu/*",
       "kernel/locking",
       "kernel/locking/*",
+      "kernel/printk",
+      "kernel/printk/*",
       "include/linux/spinlock",
       "include/linux/spinlock*.h",
       "asm/spinlock",
@@ -55,7 +64,13 @@
       "asm/preempt.h",
       "include/linux/rwlock_api_smp.h",
       "include/linux/seqlock.h",
-      "include/linux/debug_locks.h"
+      "include/linux/debug_locks.h",
+      "include/linux/perf_",
+      "include/linux/perf_*.h",
+      "asm/perf_",
+      "asm/perf_*.h",
+      "include/uapi/linux/perf_event.h",
+      "kernel/events/internal.h"
     ]
   }
 }
