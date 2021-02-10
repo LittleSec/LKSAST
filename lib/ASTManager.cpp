@@ -56,9 +56,9 @@ std::unique_ptr<ASTUnit> ASTManager::loadAUFromAF(const std::string &astpath) {
       CompilerInstance::createDiagnostics(new DiagnosticOptions());
   std::shared_ptr<PCHContainerOperations> PCHContainerOps;
   PCHContainerOps = std::make_shared<PCHContainerOperations>();
-  return std::unique_ptr<ASTUnit>(
-      ASTUnit::LoadFromASTFile(astpath, PCHContainerOps->getRawReader(),
-                               ASTUnit::LoadEverything, Diags, FileSystemOpts));
+  return ASTUnit::LoadFromASTFile(astpath, PCHContainerOps->getRawReader(),
+                                  ASTUnit::LoadEverything, Diags,
+                                  FileSystemOpts);
 }
 
 } // namespace lksast
