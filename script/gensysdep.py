@@ -16,14 +16,17 @@ with open(ptrinfo_fn, mode='r', encoding="utf-8") as fr:
     ptrinfo_map = json.loads(fr.read())
 
 
-def isSyscall(f):
-    # return f.startswith("__x64_sys_") or f.startswith("__ia32_sys_") or f.startswith("__ia32_compat_sys_") or f.startswith("__se_sys_")
-    return f.startswith("__se_sys_")
-
-
 TUsDumpJson = {}
 readJsonFn_set = set()
-syscall_set = set()
+# it is a map, key is xxx, value is a set() contains all __???_sys_xxx
+syscall_collection = {}
+syscall_set = {}  # auctally it is a map, key is xxx, value is exactly __???_sys_xxx
+
+
+def isSyscall(f):
+    return f.startswith("__x64_sys_") or f.startswith("__ia32_sys_") or \
+        f.startswith("__ia32_compat_sys_") or f.startswith("__se_sys_")
+
 
 print("[!] Reading TU dump...")
 for f, j in fun2json_map.items():
@@ -33,11 +36,30 @@ for f, j in fun2json_map.items():
             TUjson = json.loads(fr.read())
         for k, v in TUjson.items():
             TUsDumpJson[k] = v
-    if isSyscall(f):
-        syscall_set.add(f)
 print("[+] Done read TU dump")
+for f, _ in fun2json_map.items():
+    puref = f.split("_sys_")[-1]
+    if isSyscall(f):
+        if puref not in syscall_collection:
+            syscall_collection[puref] = set()
+        syscall_collection[puref].add(f)
+for pure_sys, syss in syscall_collection.items():
+    # syss is a set, values not in the follow order
+    for prefix_sys in ["__x64_sys_", "__se_sys_", "__ia32_sys_", "__ia32_compat_sys_"]:
+        f = prefix_sys + pure_sys
+        if f in syss and f in TUsDumpJson and \
+                TUsDumpJson[f]["callgraph"] != None and "sys_ni_syscall" not in TUsDumpJson[f]["callgraph"]:
+            syscall_set[pure_sys] = f
+            break
+    else:
+        f = "__x64_sys_" + pure_sys
+        syscall_set[pure_sys] = f
+        print("[!] syscall: {0} is Empty. Default {1}".format(pure_sys, f))
 
 sys2resource_map = {}
+
+with open("syscall.set", mode='w') as fw:
+    fw.write("\n".join(syscall_set.values()))
 
 
 def mergeResource(syscall):
@@ -60,7 +82,7 @@ def mergeResource(syscall):
                         cg_queue.append((ptee, "DirectCall"))
             else:
                 if f not in TUsDumpJson:  # eg. ignore function
-                    print("  |- [!] ", f, " NOT in fun2json_map")
+                    # print("  |- [!] ", f, " NOT in fun2json_map")
                     continue
                 if TUsDumpJson[f]["resource_access"] != None:
                     for k, v in TUsDumpJson[f]["resource_access"].items():
@@ -83,7 +105,7 @@ def mergeResource(syscall):
 if not os.path.exists("syscall"):
     os.mkdir("syscall")
 
-for f in syscall_set:
+for f in syscall_set.values():
     print("[!] Handling ", f)
     sysresource_map = mergeResource(f)
     sys2resource_map[f] = sysresource_map
@@ -102,21 +124,25 @@ def cal2SyscallsDep(sys1, sys2):
     for rn1, at1 in resource1.items():
         if rn1 in resource2:
             at2 = resource2[rn1]
-            if at1 == at2:
-                weight += 5
-            elif at1 == 'R' and 'W' in at2:
+            if at1 == 'R' and 'W' in at2:
                 weight += 1
             elif 'W' in at1 and at2 == 'R':
                 weight += 11
     return weight
 
+
 print("start cal2SyscallsDep...")
 starttime = time.time()
 sysdep = {}
-for s1 in syscall_set:
-    sysdep[s1] = {}
-    for s2 in syscall_set:
-        sysdep[s1][s2] = cal2SyscallsDep(s1, s2)
+cnt4log = 0
+for pure_sys1, s1 in syscall_set.items():
+    sysdep[pure_sys1] = {}
+    print("[!][{0}] Calculate: {1} - xxx".format(cnt4log //
+                                                 len(syscall_set), pure_sys1))
+    for pure_sys2, s2 in syscall_set.items():
+        # print("[!][{0}] Calculate: {1} - {2}".format(cnt4log, pure_sys1, pure_sys2))
+        cnt4log += 1
+        sysdep[pure_sys1][pure_sys2] = cal2SyscallsDep(s1, s2)
     # break
 with open(os.path.abspath(os.path.join("syscall", "weight")),
           mode='w', encoding="utf-8") as fw:

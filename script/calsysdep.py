@@ -7,7 +7,7 @@ syscall_set = set()
 sys2resource_dir = "../build/syscall"
 
 for f in os.listdir(sys2resource_dir):
-    if f.startswith("__se_sys_"):
+    if f.startswith("__") and "_sys_" in f:
         syscall_set.add(f)
 
 for sc in syscall_set:
