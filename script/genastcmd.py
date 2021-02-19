@@ -149,6 +149,12 @@ for cc in ccjson:
     # if ext.lower() not in [".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp", ".hxx", ".h++"]:
     #     continue
 
+    # customized for linux kernel, do not handle files in tools/ and scripts/*
+    abs_filepath = os.path.join(directory, filename)
+    abs_filepath = os.path.abspath(abs_filepath)
+    if "/tools/" in abs_filepath or "/scripts/" in abs_filepath:
+        continue
+
     if "-o" in cmdargs:
         # change C compile into clang and add option `-emit-ast`
         if cmdargs[0][-3:].lower() in ["c++", "g++", "cpp", "cxx"]:
@@ -163,6 +169,8 @@ for cc in ccjson:
               cmdargs[i] = arg[1:-1]
             elif arg.startswith("'") and arg.endswith("'"):
               cmdargs[i] = arg[1:-1]
+            # if arg == "-Werror":
+            #   cmdargs[i] = ""
         # change -o output file
         # This script assumes that the `make` program has been run before running,
         # so the file path must exist, no need to determine whether the path exists
@@ -185,8 +193,6 @@ for cc in ccjson:
         cmd_exe = cmd_exe.replace(r'\\"', r'\"') # in ubuntu 16.04, bear 2.1.5 will handle the double quotation, so here reverse last instructions
         # cd directory
         cmd_cd = ' '.join(["cd", directory])
-        abs_filepath = os.path.join(directory, filename)
-        abs_filepath = os.path.abspath(abs_filepath)
         # print(cmd_exe)
         ############# -emit-ast #############
         # read -u 4
