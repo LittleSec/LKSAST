@@ -15,6 +15,7 @@
       "include/asm-generic",
       "include/asm-generic/*",
       "linux/kernel.h",
+      "linux/printk.h",
       "include/uapi/linux/byteorder",
       "include/uapi/linux/byteorder/*",
       "include/linux/byteorder",

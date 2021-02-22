@@ -274,6 +274,13 @@ bool ConfigManager::isNeedToAnalysis(clang::FunctionDecl *FD) {
   if (funcname.find("atomic") == 0) {
     return false;
   }
+  // ignore **_printk/printf(many device drivers have these function for debug)
+  if (funcname.find("printk") != funcname.npos) {
+    return false;
+  }
+  if (funcname.find("printf") != funcname.npos) {
+    return false;
+  }
   if (hasAnalysisFunc_set.find(funcname) != hasAnalysisFunc_set.end()) {
     // llvm::errs() << "[!] has been handled: [" << funcname << " ]\n";
     return false;
@@ -283,9 +290,10 @@ bool ConfigManager::isNeedToAnalysis(clang::FunctionDecl *FD) {
    * Because ign path always just include header file,
    * not include the impl.c file path.
    */
-  clang::SourceLocation sl = FD->getFirstDecl()->getLocation();
+  clang::SourceLocation sl1 = FD->getFirstDecl()->getLocation();
+  clang::SourceLocation sl2 = FD->getLocation();
   clang::SourceManager &sm = FD->getASTContext().getSourceManager();
-  if (isNeedToAnalysis(sm, sl)) {
+  if (isNeedToAnalysis(sm, sl1) && isNeedToAnalysis(sm, sl2)) {
     return true;
   } else {
     // TODO: not hasAnalysisFunc, is ignFunc
