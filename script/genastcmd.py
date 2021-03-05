@@ -166,11 +166,13 @@ for cc in ccjson:
         # e.g. "-DBUILD_STR(s)=#s" => -DBUILD_STR(s)=#s => ..
         for i, arg in enumerate(cmdargs):
             if arg.startswith('"') and arg.endswith('"'):
-              cmdargs[i] = arg[1:-1]
+                cmdargs[i] = arg[1:-1]
             elif arg.startswith("'") and arg.endswith("'"):
-              cmdargs[i] = arg[1:-1]
+                cmdargs[i] = arg[1:-1]
             # if arg == "-Werror":
-            #   cmdargs[i] = ""
+            #     cmdargs[i] = ""
+            # if arg.startswith("-m") or arg.startswith("-f") or arg.startswith("-W"):
+            #     cmdargs[i] = ""
         # change -o output file
         # This script assumes that the `make` program has been run before running,
         # so the file path must exist, no need to determine whether the path exists
