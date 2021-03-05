@@ -188,11 +188,20 @@ namespace lksast {
  * 因此对于非赋值操作符的stmt设置isLhs为false即可通用
  *******************************************/
 class StmtLhsRhsAnalyzer : public clang::StmtVisitor<StmtLhsRhsAnalyzer> {
+public:
+  enum ResAnaMode_t { // resource analysis mode
+    NONE_MODE,        // do not analysis any resource type
+    ALL_MODE,         // analysis all resource type
+    GLOBAL_ONLY_MODE, // only analysis global var
+    FIELD_ONLY_MODE   // only analysis struct.field
+  };
+
 private:
   clang::FunctionDecl *_ScopeFD;
   clang::SourceManager &_SM;
   ConfigManager &_CfgMgr;
-  bool isLhs;
+  ResAnaMode_t _ResourceMode;
+  bool isLhs; // make sense when _ResourceMode != NONE_MODE
   bool hasAsm;
   ResourceAccessNode::AccessType _AccType;
   Ptr2InfoType &_Need2AnalysisPtrInfo;
@@ -204,19 +213,21 @@ public:
                      ConfigManager &cfgmgr, Ptr2InfoType &ptrinfo,
                      FunctionResult &result, FunPtrExtractor &fpextra)
       : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Need2AnalysisPtrInfo(ptrinfo),
-        _Result(result), _FptrExtractor(fpextra), isLhs(false), hasAsm(false) {
+        _Result(result), _FptrExtractor(fpextra), isLhs(false), hasAsm(false),
+        _ResourceMode(ALL_MODE) {
     _AccType = ResourceAccessNode::AccessType::Read;
   }
   StmtLhsRhsAnalyzer(clang::FunctionDecl *fd, clang::SourceManager &sm,
                      ConfigManager &cfgmgr, Ptr2InfoType &ptrinfo,
                      FunctionResult &result, FunPtrExtractor &fpextra, bool lhs)
       : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Need2AnalysisPtrInfo(ptrinfo),
-        _Result(result), _FptrExtractor(fpextra), isLhs(lhs), hasAsm(false) {
+        _Result(result), _FptrExtractor(fpextra), isLhs(lhs), hasAsm(false),
+        _ResourceMode(ALL_MODE) {
     _AccType = isLhs ? ResourceAccessNode::AccessType::Write
                      : ResourceAccessNode::AccessType::Read;
   }
 
-  void ResetStmt(bool lhs = false);
+  void ResetStmt(bool lhs = false, ResAnaMode_t mode = ALL_MODE);
   void AnalysisResourceInVD(clang::VarDecl *VD);
   void AnalysisPtrInfoInVD(clang::VarDecl *VD);
   void VisitDeclStmt(clang::DeclStmt *DS);
@@ -260,8 +271,9 @@ public:
    * CGNode getPointer(clang::Expr *lhs);
    */
   void AnalysisPoint2InfoWithBOAssign(clang::Expr *lhs, clang::Expr *rhs);
-  void AnalysisReadStmt(clang::Stmt *LHSorSR);
-  void AnalysisWriteStmt(clang::Stmt *RHSorSW);
+  void AnalysisReadStmt(clang::Stmt *LHSorSR);       // all resource
+  void AnalysisWriteStmt(clang::Stmt *RHSorSW);      // all resource
+  void AnalysisGlobalOnly(clang::Stmt *s, bool lhs); // only global resource
   void AnalysisWithCFG();
   void Analysis();
   FunctionResult &getFunctionResult() { return _Result; }

@@ -607,14 +607,20 @@ namespace lksast {
  **********************************/
 #if StmtLhsRhsAnalyzer_METHODS
 
-void StmtLhsRhsAnalyzer::ResetStmt(bool lhs) {
+void StmtLhsRhsAnalyzer::ResetStmt(bool lhs, ResAnaMode_t mode) {
   // FIXME? not need to reset hasAsm flag
+  _ResourceMode = mode;
   isLhs = lhs;
   _AccType = isLhs ? ResourceAccessNode::AccessType::Write
                    : ResourceAccessNode::AccessType::Read;
 }
 
 void StmtLhsRhsAnalyzer::AnalysisResourceInVD(VarDecl *VD) {
+  switch (_ResourceMode) {
+  case NONE_MODE:
+  case GLOBAL_ONLY_MODE:
+    return;
+  }
   QualType Ty = VD->getType();
   if (auto convertype = Ty->getPointeeOrArrayElementType()) {
     Ty = convertype->getCanonicalTypeInternal();
@@ -633,7 +639,7 @@ void StmtLhsRhsAnalyzer::AnalysisResourceInVD(VarDecl *VD) {
     It does not need to check if VD hasGlobalStorage,
     because we not need to think about StaticLocal Variable,
     and other GlobalStorage VD init does not belong to any functions.
-    if (VD->hasGlobalStorage() && !VD->isStaticLocal())
+    what we need if (VD->hasGlobalStorage() && !VD->isStaticLocal())
    */
 }
 
@@ -656,13 +662,16 @@ void StmtLhsRhsAnalyzer::VisitDeclStmt(DeclStmt *DS) {
 }
 
 void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
+  if (_ResourceMode == NONE_MODE) {
+    return;
+  }
   ValueDecl *valuedecl = DRE->getDecl();
   if (const VarDecl *VD = dyn_cast<VarDecl>(valuedecl)) {
     QualType Ty = VD->getType();
     if (auto convertype = Ty->getPointeeOrArrayElementType()) {
       Ty = convertype->getCanonicalTypeInternal();
     }
-    if (Ty->isStructureType()) {
+    if (_ResourceMode != GLOBAL_ONLY_MODE && Ty->isStructureType()) {
       if (!_CfgMgr.isNeedToAnalysis(Ty->getAsRecordDecl())) {
         return;
       }
@@ -673,7 +682,8 @@ void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
         return;
       }
     }
-    if (VD->hasGlobalStorage() && !VD->isStaticLocal()) {
+    if (_ResourceMode != FIELD_ONLY_MODE && VD->hasGlobalStorage() &&
+        !VD->isStaticLocal()) {
       if (VD->hasInit()) {
         ResourceAccessNode tmp(ResourceAccessNode::ResourceType::GlobalVal,
                                _AccType, VD->getName().str());
@@ -702,6 +712,11 @@ void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
 }
 
 void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
+  switch (_ResourceMode) {
+  case NONE_MODE:
+  case GLOBAL_ONLY_MODE:
+    return;
+  }
   // FIXME: should be deduplicated the funcptr field, or think about:
   // struct fs->struct fsop->...(all of fields in fsop is funcptr)
   ValueDecl *memdecl = ME->getMemberDecl();
@@ -835,6 +850,9 @@ void StmtLhsRhsAnalyzer::VisitCallExpr(CallExpr *CE) {
 #define ASM_DEBUG 0
 
 void StmtLhsRhsAnalyzer::Visit(Stmt *S) {
+  if (S == nullptr) {
+    return;
+  }
 #if ASM_DEBUG
   if (hasAsm) {
     return;
@@ -931,13 +949,19 @@ void FunctionAnalyzer::AnalysisPoint2InfoWithBOAssign(Expr *lhs, Expr *rhs) {
 }
 
 void FunctionAnalyzer::AnalysisReadStmt(Stmt *LHSorSR) {
-  _StmtAnalyzer.ResetStmt(false);
+  _StmtAnalyzer.ResetStmt(false, StmtLhsRhsAnalyzer::ResAnaMode_t::ALL_MODE);
   _StmtAnalyzer.Visit(LHSorSR);
 }
 
 void FunctionAnalyzer::AnalysisWriteStmt(Stmt *RHSorSW) {
-  _StmtAnalyzer.ResetStmt(true);
+  _StmtAnalyzer.ResetStmt(true, StmtLhsRhsAnalyzer::ResAnaMode_t::ALL_MODE);
   _StmtAnalyzer.Visit(RHSorSW);
+}
+
+void FunctionAnalyzer::AnalysisGlobalOnly(Stmt *s, bool lhs) {
+  _StmtAnalyzer.ResetStmt(lhs,
+                          StmtLhsRhsAnalyzer::ResAnaMode_t::GLOBAL_ONLY_MODE);
+  _StmtAnalyzer.Visit(s);
 }
 
 void FunctionAnalyzer::AnalysisWithCFG() {
@@ -949,6 +973,50 @@ void FunctionAnalyzer::AnalysisWithCFG() {
   for (CFG::const_reverse_iterator it = cfg->rbegin(), ei = cfg->rend();
        it != ei; ++it) {
     const CFGBlock *block = *it;
+
+    if (Stmt *TS = const_cast<Stmt *>(block->getTerminatorStmt())) {
+      switch (TS->getStmtClass()) {
+      case Stmt::IfStmtClass:           /* if, else, else if */
+      case Stmt::SwitchStmtClass:       /* switch case */
+      case Stmt::IndirectGotoStmtClass: /* goto */
+      case Stmt::DoStmtClass:
+      case Stmt::WhileStmtClass:
+      case Stmt::ForStmtClass:
+        /* loop */
+        // just handle condition
+        // condition maybe null, eg, for ( ; ; )
+        if (const Stmt *TC = block->getTerminatorCondition()) {
+          AnalysisReadStmt(const_cast<Stmt *>(TC));
+        }
+        break;
+      case Stmt::ConditionalOperatorClass:
+      case Stmt::BinaryConditionalOperatorClass:
+        /* ? : */
+      case Stmt::BinaryOperatorClass: /* &&, ||, ! */
+        // handle all sub expr
+        AnalysisReadStmt(TS);
+        break;
+      case Stmt::BreakStmtClass:
+      case Stmt::ContinueStmtClass:
+      case Stmt::GotoStmtClass:
+        /* goto */
+      case Stmt::GCCAsmStmtClass:
+      case Stmt::MSAsmStmtClass:
+        /* asm code */
+        // not need to handle
+        break;
+      default:
+        llvm::errs() << "[!] Warning: Unknown Terminator Stmt Class\n";
+        llvm::errs() << "  |- [ " << TS->getStmtClassName() << " ]: ";
+        block->printTerminator(llvm::errs(), LangOptions());
+        llvm::errs() << "\n";
+        llvm::errs() << "  `- in ";
+        TS->getBeginLoc().print(llvm::errs(), _SM);
+        llvm::errs() << "\n";
+        break;
+      }
+    }
+
     for (CFGBlock::const_iterator bi = block->begin(), be = block->end();
          bi != be; ++bi) {
       if (llvm::Optional<CFGStmt> CS = bi->getAs<CFGStmt>()) {
@@ -956,25 +1024,24 @@ void FunctionAnalyzer::AnalysisWithCFG() {
         // if (const AsmStmt *AS = dyn_cast<AsmStmt>(stmt)) {
         //   break;
         // } else
+        /* Note:
+         * Ensure that:
+         * No matter which branch, it should Visit() one time,
+         * because beside check point2info and resource,
+         * it will Visit CallExpr, too.
+         * And some point2info and resource will in VD.
+         */
         if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(stmt)) {
           Expr *lhs = BO->getLHS();
           Expr *rhs = BO->getRHS();
           if (BO->getOpcode() == BO_Assign) {
-            /* Point to info
-             * if rhs is FD, then analysis lhs,
-             * think about if lhs is memberexpr/array/parm,
-             * and do not handle other situation.
-             */
             AnalysisPoint2InfoWithBOAssign(lhs, rhs);
           }
           if (BO->isAssignmentOp()) {
-            /* Resource access
-             * DeclRefExpr in lhs(maybe nest) is write, other is read,
-             */
             AnalysisWriteStmt(lhs);
-            AnalysisReadStmt(rhs);
+            AnalysisGlobalOnly(rhs, false);
           } else {
-            AnalysisReadStmt(const_cast<Stmt *>(stmt));
+            AnalysisGlobalOnly(const_cast<Stmt *>(stmt), false);
           }
         } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(stmt)) {
           /* Here we assume that:
@@ -988,7 +1055,7 @@ void FunctionAnalyzer::AnalysisWithCFG() {
                        << " ] In " << stmt->getBeginLoc().printToString(_SM)
                        << "\n";
           */
-          AnalysisReadStmt(const_cast<Stmt *>(stmt));
+          AnalysisGlobalOnly(const_cast<Stmt *>(stmt), false);
         } // if stmt is a BinOp or UnOp or Other?
       }
     } // for stmt in bb
