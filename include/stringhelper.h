@@ -7,6 +7,7 @@
 namespace lksast {
 
 std::string Trim(const std::string &s);
+std::string Join(std::vector<std::string> &strs, const std::string &delim);
 void SplitStr2Vec(const std::string &s, std::vector<std::string> &result,
                   const std::string delim);
 std::string GetRealPurePath(const std::string &path);

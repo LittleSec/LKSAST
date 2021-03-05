@@ -1,10 +1,17 @@
+#define NORMAL_TEST_CODE 1
+#define CMP_TEST_CODE 0
+
 #include <vector>
 
 #include "ASTManager.h"
 #include "ConfigManager.h"
+#if NORMAL_TEST_CODE
 #include "DumpHelper.h"
 #include "Handle1AST.h"
-
+#endif
+#if CMP_TEST_CODE
+#include "TypeAnalysis.h"
+#endif
 #include <llvm-c/Target.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/raw_ostream.h>
@@ -13,6 +20,8 @@ using namespace lksast;
 using namespace clang;
 
 #define USAGE "Usage: ./bin config.json\n"
+
+#if NORMAL_TEST_CODE
 
 bool hasDoneAnalysis(const CGsType &ptees) {
   for (auto &ptee : ptees) {
@@ -189,6 +198,7 @@ void analysisPtrInfo(Ptr2InfoType &src) {
     }
   } // if (isAllDirect)
 }
+#endif
 
 int main(int argc, char *argv[]) {
   LLVMInitializeNativeTarget();
@@ -207,6 +217,25 @@ int main(int argc, char *argv[]) {
   ConfigManager cfgmgr(argv[1]);
   // cfgmgr.dump();
   ASTManager manager(cfgmgr.getFnAstList(), true);
+
+#if CMP_TEST_CODE
+  TAPtr2InfoType FunPtrInfo;
+  LangOptions LO;
+  PrintingPolicy PP(LO);
+  PP.PolishForDeclaration = true; // void (void) __attribute__((noreturn))
+  for (auto &af : manager.getAstFiles()) {
+    std::unique_ptr<ASTUnit> au = manager.loadAUFromAF(af);
+    if (au == nullptr) {
+      continue;
+    }
+    llvm::errs() << "[!] Handling AST: " << au->getASTFileName() << "\n";
+    TATUAnalyzer analyzer(au, cfgmgr, FunPtrInfo, PP);
+    analyzer.check();
+    analyzer.dumpTree("read_write.txt");
+  }
+#endif
+
+#if NORMAL_TEST_CODE
   Ptr2InfoType Need2AnalysisPtrInfo;
   Fun2JsonType fun2json_map;
   for (auto &af : manager.getAstFiles()) {
@@ -251,6 +280,7 @@ int main(int argc, char *argv[]) {
   } else {
     DumpPtrInfo2txt(ptrinfo_fn, PurePtrInfo, true);
   }
+#endif
 
   llvm::errs() << "hello world\n";
   return 0;

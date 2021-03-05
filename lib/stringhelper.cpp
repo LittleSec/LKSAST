@@ -14,6 +14,19 @@ string Trim(const string &s) {
   return result;
 }
 
+std::string Join(std::vector<std::string> &strs, const std::string &delim) {
+  std::string ret;
+  for (std::vector<std::string>::iterator it = strs.begin(), ed = strs.end();
+       it != ed; it++) {
+    if (it + 1 != ed) {
+      ret += (*it + delim);
+    } else {
+      ret += *it;
+    }
+  }
+  return ret;
+}
+
 void SplitStr2Vec(const string &s, vector<string> &result, const string delim) {
   result.clear();
 
