@@ -134,48 +134,6 @@ using FunctionResultsType =
 
 }; // namespace lksast
 
-/* Helper Function */
-namespace lksast {
-
-class FunPtrExtractor {
-private:
-  clang::ASTContext &_ASTCtx;
-  clang::SourceManager &_SM;
-  ConfigManager &_CfgMgr;
-  CGNode _nullcgnode;
-
-public:
-  FunPtrExtractor(clang::ASTContext &ctx, ConfigManager &cfgmgr)
-      : _ASTCtx(ctx), _SM(ctx.getSourceManager()), _CfgMgr(cfgmgr){};
-  CGNode FromMemberExpr(clang::MemberExpr *ME, bool shouldCheck = true);
-  CGNode FromArraySubscriptExpr(clang::ArraySubscriptExpr *ASE,
-                                clang::FunctionDecl *scopeFD,
-                                bool shouldCheck = true);
-  CGNode FromDeclRefExpr(clang::DeclRefExpr *DRE, clang::FunctionDecl *scopeFD,
-                         bool shouldCheck = true);
-  std::pair<CGNode, CGNode>
-  FromExpr(clang::Expr *E, clang::FunctionDecl *scopeFD, bool shouldCheck);
-
-  /*
-   * Just Handle one VarDecl situation:
-   * 1. Structure Var
-   */
-  void FromStructureInitListExpr(clang::InitListExpr *ILE,
-                                 clang::FunctionDecl *scopeFD,
-                                 Ptr2InfoType &_Need2AnalysisPtrInfo);
-  /*
-   * Handle the follow VarDecl situations:
-   * 1. Global Var: GlobalVarFunPtrCall(scopeFD == nullptr)
-   * 2. Local Var: LocalVarFunPtrCall(scopeFD != nullptr)
-   * 3. Array Var: ArrayFunPtrCall(InitListExpr)
-   */
-  void FromVDNotStructure(clang::VarDecl *VD, clang::FunctionDecl *scopeFD,
-                          Ptr2InfoType &_Need2AnalysisPtrInfo);
-  CGNode EmitCGNodeFromVD(clang::VarDecl *VD, clang::FunctionDecl *scopeFD);
-};
-
-}; // namespace lksast
-
 /* Core */
 namespace lksast {
 
@@ -204,44 +162,30 @@ private:
   bool isLhs; // make sense when _ResourceMode != NONE_MODE
   bool hasAsm;
   ResourceAccessNode::AccessType _AccType;
-  Ptr2InfoType &_Need2AnalysisPtrInfo;
   FunctionResult &_Result;
-  FunPtrExtractor &_FptrExtractor;
 
 public:
   StmtLhsRhsAnalyzer(clang::FunctionDecl *fd, clang::SourceManager &sm,
-                     ConfigManager &cfgmgr, Ptr2InfoType &ptrinfo,
-                     FunctionResult &result, FunPtrExtractor &fpextra)
-      : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Need2AnalysisPtrInfo(ptrinfo),
-        _Result(result), _FptrExtractor(fpextra), isLhs(false), hasAsm(false),
-        _ResourceMode(ALL_MODE) {
+                     ConfigManager &cfgmgr, FunctionResult &result)
+      : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Result(result), isLhs(false),
+        hasAsm(false), _ResourceMode(ALL_MODE) {
     _AccType = ResourceAccessNode::AccessType::Read;
   }
   StmtLhsRhsAnalyzer(clang::FunctionDecl *fd, clang::SourceManager &sm,
-                     ConfigManager &cfgmgr, Ptr2InfoType &ptrinfo,
-                     FunctionResult &result, FunPtrExtractor &fpextra, bool lhs)
-      : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Need2AnalysisPtrInfo(ptrinfo),
-        _Result(result), _FptrExtractor(fpextra), isLhs(lhs), hasAsm(false),
-        _ResourceMode(ALL_MODE) {
+                     ConfigManager &cfgmgr, FunctionResult &result, bool lhs)
+      : _ScopeFD(fd), _SM(sm), _CfgMgr(cfgmgr), _Result(result), isLhs(lhs),
+        hasAsm(false), _ResourceMode(ALL_MODE) {
     _AccType = isLhs ? ResourceAccessNode::AccessType::Write
                      : ResourceAccessNode::AccessType::Read;
   }
 
   void ResetStmt(bool lhs = false, ResAnaMode_t mode = ALL_MODE);
-  void AnalysisResourceInVD(clang::VarDecl *VD);
-  void AnalysisPtrInfoInVD(clang::VarDecl *VD);
-  void VisitDeclStmt(clang::DeclStmt *DS);
   void VisitDeclRefExpr(clang::DeclRefExpr *DRE);
-  void VisitMemberExpr(clang::MemberExpr *ME);
-  void VisitInitListExpr(clang::InitListExpr *ILE);
   /****************************
    * analysis call graph
    * analysis funptr point-to info
    ****************************/
-  void AnalysisCallExprArg(clang::Expr *E, CGNode &pointer);
   void VisitCallExpr(clang::CallExpr *CE);
-  // It seems that RecursiveASTVisitor don't have TraverseAsmStmt method.
-  void VisitAsmStmt(clang::AsmStmt *AS);
   /***************************
    * Traverse and Dispatch
    ***************************/
@@ -253,27 +197,16 @@ private:
   clang::FunctionDecl *_FD;
   clang::SourceManager &_SM;
   ConfigManager &_CfgMgr;
-  Ptr2InfoType &_Need2AnalysisPtrInfo;
-  FunPtrExtractor &_FptrExtractor;
   FunctionResult _Result;
   StmtLhsRhsAnalyzer _StmtAnalyzer;
 
 public:
-  FunctionAnalyzer(clang::FunctionDecl *fd, ConfigManager &cfgmgr,
-                   Ptr2InfoType &ptrinfo, FunPtrExtractor &fpextra)
+  FunctionAnalyzer(clang::FunctionDecl *fd, ConfigManager &cfgmgr)
       : _FD(fd), _CfgMgr(cfgmgr), _SM(_FD->getASTContext().getSourceManager()),
-        _Need2AnalysisPtrInfo(ptrinfo), _FptrExtractor(fpextra), _Result(fd),
-        _StmtAnalyzer(_FD, _SM, cfgmgr, ptrinfo, _Result, fpextra){};
-
-  void AnalysisParms();
-  /* Unused:
-   * CGNode getPointee(clang::Expr *rhs);
-   * CGNode getPointer(clang::Expr *lhs);
-   */
-  void AnalysisPoint2InfoWithBOAssign(clang::Expr *lhs, clang::Expr *rhs);
-  void AnalysisReadStmt(clang::Stmt *LHSorSR);       // all resource
-  void AnalysisWriteStmt(clang::Stmt *RHSorSW);      // all resource
-  void AnalysisGlobalOnly(clang::Stmt *s, bool lhs); // only global resource
+        _Result(fd), _StmtAnalyzer(_FD, _SM, cfgmgr, _Result){};
+  void AnalysisReadStmt(clang::Stmt *LHSorSR);
+  void AnalysisWriteStmt(clang::Stmt *RHSorSW);
+  void AnalysisCallee(clang::Stmt *s); // no resource
   void AnalysisWithCFG();
   void Analysis();
   FunctionResult &getFunctionResult() { return _Result; }
@@ -285,20 +218,14 @@ private:
   clang::ASTContext &_ASTCtx;
   ConfigManager &_CfgMgr;
   FunctionResultsType TUResult;
-  Ptr2InfoType &_Need2AnalysisPtrInfo;
-  FunPtrExtractor _FptrExtractor;
 
 public:
-  TUAnalyzer(const std::unique_ptr<clang::ASTUnit> &au, ConfigManager &cfgmgr,
-             Ptr2InfoType &ptrinfo)
-      : _CfgMgr(cfgmgr), _ASTCtx(au->getASTContext()),
-        _Need2AnalysisPtrInfo(ptrinfo), _FptrExtractor(_ASTCtx, cfgmgr){};
+  TUAnalyzer(const std::unique_ptr<clang::ASTUnit> &au, ConfigManager &cfgmgr)
+      : _CfgMgr(cfgmgr), _ASTCtx(au->getASTContext()){};
 
   void check() { HandleTranslationUnit(_ASTCtx); }
   void HandleTranslationUnit(clang::ASTContext &Context) override;
   bool TraverseFunctionDecl(clang::FunctionDecl *FD); // Traverse
-  bool VisitVarDecl(clang::VarDecl *VD);
-  bool VisitInitListExpr(clang::InitListExpr *ILE);
   void dumpTree(const std::string &filename);
   void dumpTree(std::ofstream &of);
   void dumpJSON(const std::string &filename, JsonLogV V = JsonLogV::NORMAL);
