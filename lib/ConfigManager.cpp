@@ -242,6 +242,41 @@ void ConfigManager::dump() {
   }
 }
 
+/* Note:
+ *
+ * Recommended not to set ["Running"]["IgnorePaths"] in config
+ *
+ * (Maybe) We do not use ignore path any more.
+ * It seems that there is no perfect situation.
+ * We want to ignore some struct like list... common kernel data structurce,
+ * there are some callback function field we want to ignore.
+ * In same time, some struct like trace_*, if we ignore callback function field,
+ * it will make funptr analysis do not sound,
+ * but it's too many for resource analysis.
+ * By the way, I think sth. strange as follow:
+ * 1. Function(definition) like printk can be ignore,
+ *    in this situation, if we can specified all ##Definition## path, not header
+ * 2. Structure/field(declaration) like list_head can be ignore,
+ *    in this situation, we need to get Decl* actually header ##Declaration##,
+ *    but Clang does not have this api(getFirstDecl() is not right!!!).
+ *    Eg. in v5.3, when analysis fs/read_write.c,
+ *    when (RD->getName() == "file_operations"), it may get these info:
+ *    RD->getFirstDecl()->dump();
+ * RecordDecl 0x55b83930cb90 <linux-5.3/include/linux/printk.h:477:14,col:21>
+ * col:21 imported struct file_operations
+ *    RD->dump();
+ * RecordDecl 0x55b83967b568 prev 0x55b83958e9b0
+ * <linux-5.3.clang/include/linux/fs.h:1789:1, line:1829:1> line:1789:8 imported
+ * struct file_operations definition
+ *    |-FieldDecl ...
+ *    |-FieldDecl ...
+ *    ...
+ *    And if linux/printk.h in ignore dir,
+ *    it will result in extract funcptr and so on.
+ *
+ * (Maybe) A better solution is
+ *    string-cmp/regex, If we can list all situations
+ */
 bool ConfigManager::isNeedToAnalysis(clang::SourceManager &SM,
                                      clang::SourceLocation SL) {
   if (SM.isInSystemHeader(SL)) {
@@ -267,7 +302,7 @@ bool ConfigManager::isNeedToAnalysis(clang::FunctionDecl *FD) {
     return false;
   }
   std::string funcname = FD->getName().str();
-  // TODO: ignore builtin
+  // ignore builtin and atomic
   if (funcname.find("__builtin") == 0) {
     return false;
   }
@@ -290,6 +325,7 @@ bool ConfigManager::isNeedToAnalysis(clang::FunctionDecl *FD) {
    * Because ign path always just include header file,
    * not include the impl.c file path.
    */
+  // TODO: getFirstDecl() maybe wrong
   clang::SourceLocation sl1 = FD->getFirstDecl()->getLocation();
   clang::SourceLocation sl2 = FD->getLocation();
   clang::SourceManager &sm = FD->getASTContext().getSourceManager();
@@ -306,14 +342,14 @@ bool ConfigManager::isNeedToAnalysis(clang::RecordDecl *RD, bool isFunPtr) {
   if (RD == nullptr) {
     return false;
   }
-  if (RD->getName().startswith("pt_regs")) {
-    return false;
-  }
-  if (isFunPtr == false) {
-    if (RD->getName().startswith("trace_event_raw")) {
-      return false;
-    }
-  }
+  // if (RD->getName().startswith("pt_regs")) {
+  //   return false;
+  // }
+  // if (isFunPtr == false) {
+  //   if (RD->getName().startswith("trace_event_raw")) {
+  //     return false;
+  //   }
+  // }
   clang::SourceLocation sl = RD->getLocation();
   clang::SourceManager &sm = RD->getASTContext().getSourceManager();
   return isNeedToAnalysis(sm, sl);
@@ -323,14 +359,14 @@ bool ConfigManager::isNeedToAnalysis(clang::FieldDecl *FD, bool isFunPtr) {
   if (FD == nullptr) {
     return false;
   }
-  if (FD->getName().startswith("pt_regs")) {
-    return false;
-  }
-  if (isFunPtr == false) {
-    if (FD->getName().startswith("trace_event_raw")) {
-      return false;
-    }
-  }
+  // if (FD->getName().startswith("pt_regs")) {
+  //   return false;
+  // }
+  // if (isFunPtr == false) {
+  //   if (FD->getName().startswith("trace_event_raw")) {
+  //     return false;
+  //   }
+  // }
   clang::QualType Ty = FD->getType();
   if (clang::RecordDecl *rd = Ty->getAsRecordDecl()) {
     if (isNeedToAnalysis(rd, isFunPtr) == false) {
