@@ -1,10 +1,13 @@
 {
-  "Input" : {
+  "Input": {
     "AstList": "/abspath/to/linux-5.8/astList.txt"
   },
-  "Output" : {
-    "Fun2Json" : "fun2json.txt",
+  "Output": {
+    "Fun2Json": "fun2json.txt",
     "Need2AnalysisPtrInfo": "Need2AnalysisPtrInfo.txt",
-    "HasAnalysisPtrInfo" : "PtrInfo.txt"
+    "HasAnalysisPtrInfo": "PtrInfo.txt"
+  },
+  "Running": {
+    "OnlyGlobalResource": true
   }
 }

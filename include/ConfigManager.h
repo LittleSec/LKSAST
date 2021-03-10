@@ -68,6 +68,9 @@ public:
   std::string getFnHasAnalysisPtrInfo() {
     return configJson["Output"]["HasAnalysisPtrInfo"].get<std::string>();
   };
+  bool isGlobalResourceOnly() {
+    return configJson["Running"]["OnlyGlobalResource"].get<bool>();
+  };
 
 private:
   list<string> ignorePath;

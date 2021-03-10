@@ -20,6 +20,7 @@ c/cpp will get `/home/xxx/path.file` actually.
     "HasAnalysisPtrInfo" : "Must, path" // Default: PtrInfo.json
   },
   "Running" : { // Option
+    "OnlyGlobalResource": true, // Default: true
     "IgnorePaths" : [ // Option
       "Option, path", // No Default
       "..."

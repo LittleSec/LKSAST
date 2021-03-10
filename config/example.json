@@ -1,16 +1,17 @@
 {
-  "Input" : {
+  "Input": {
     "AstList": "/abspath/to/linux-5.8/astList.txt",
-    "ExtdefMapping" : "/abspath/to/Downloads/linux-5.8/extdef_mapping.txt",
-    "Src2Ast" : "/abspath/to/Downloads/linux-5.8/src2ast.txt"
+    "ExtdefMapping": "/abspath/to/Downloads/linux-5.8/extdef_mapping.txt",
+    "Src2Ast": "/abspath/to/Downloads/linux-5.8/src2ast.txt"
   },
-  "Output" : {
-    "Fun2Json" : "fun2json.json",
+  "Output": {
+    "Fun2Json": "fun2json.json",
     "Need2AnalysisPtrInfo": "Need2AnalysisPtrInfo.json",
-    "HasAnalysisPtrInfo" : "PtrInfo.json"
+    "HasAnalysisPtrInfo": "PtrInfo.json"
   },
-  "Running" : {
-    "IgnorePaths" : [
+  "Running": {
+    "OnlyGlobalResource": true,
+    "IgnorePaths": [
       "/usr/include",
       "include/asm-generic",
       "include/asm-generic/*",

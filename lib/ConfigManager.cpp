@@ -78,9 +78,13 @@ void ConfigManager::HandleRunningCfg() {
     } else { // TODO: maybe unused
       runJ["IgnorePaths"] = json::array();
     }
+    if (!runJ.contains("OnlyGlobalResource")) {
+      runJ["OnlyGlobalResource"] = true;
+    }
   } else {
     json tmpj;
     tmpj["IgnorePaths"] = json::array();
+    tmpj["OnlyGlobalResource"] = true;
     configJson["Running"] = tmpj;
   }
 }
