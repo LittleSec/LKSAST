@@ -8,6 +8,11 @@ import time
 
 fun2json_fn = "fun2json.all.json"
 ptrinfo_fn = "PtrInfo.all.json"
+output_dir = "sysdep.v4.14"
+default_w = 1  # default weight
+
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir, exist_ok=True)
 
 with open(fun2json_fn, mode='r', encoding="utf-8") as fr:
     fun2json_map = json.loads(fr.read())
@@ -61,7 +66,7 @@ for pure_sys, syss in syscall_collection.items():
 
 sys2resource_map = {}
 
-with open("syscall.set", mode='w') as fw:
+with open(os.path.abspath(os.path.join(output_dir, "syscall.set")), mode='w') as fw:
     fw.write("\n".join(syscall_set.values()))
 
 
@@ -103,7 +108,8 @@ def mergeResource(syscall):
                     for cgnode in TUsDumpJson[f]["callgraph"].items():
                         # TODO: modify here
                         if cgnode[0] not in TUsDumpJson and (cgnode[0].startswith("sys_") or cgnode[0].startswith("compat_sys_")):
-                            newcg = (cgnode[0].replace("sys_", "SyS_"), cgnode[1])
+                            newcg = (cgnode[0].replace(
+                                "sys_", "SyS_"), cgnode[1])
                             cg_queue.append(newcg)
                             # print(newcg)
                         else:
@@ -111,14 +117,11 @@ def mergeResource(syscall):
     return resource_map
 
 
-if not os.path.exists("syscall"):
-    os.mkdir("syscall")
-
 for f in syscall_set.values():
     print("[!] Handling ", f)
     sysresource_map = mergeResource(f)
     sys2resource_map[f] = sysresource_map
-    with open(os.path.abspath(os.path.join("syscall", f)),
+    with open(os.path.abspath(os.path.join(output_dir, f)),
               mode='w', encoding="utf-8") as fw:
         json.dump(sysresource_map, fw, indent=2)
 
@@ -126,7 +129,7 @@ for f in syscall_set.values():
 def cal2SyscallsDep(sys1, sys2):
     if sys1 == sys2:
         return 0
-    weight = 1  # default weight is 1
+    weight = default_w
     resource1 = sys2resource_map[sys1]
     resource2 = sys2resource_map[sys2]
     # rn(resource name), at(access type)
@@ -153,7 +156,7 @@ for pure_sys1, s1 in syscall_set.items():
         cnt4log += 1
         sysdep[pure_sys1][pure_sys2] = cal2SyscallsDep(s1, s2)
     # break
-with open(os.path.abspath(os.path.join("syscall", "weight")),
+with open(os.path.abspath(os.path.join(output_dir, "weight")),
           mode='w', encoding="utf-8") as fw:
     json.dump(sysdep, fw, indent=2)
 print("cal2SyscallsDep time: ", time.time()-starttime)
