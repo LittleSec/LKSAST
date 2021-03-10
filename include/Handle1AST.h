@@ -272,9 +272,7 @@ public:
    * CGNode getPointer(clang::Expr *lhs);
    */
   void AnalysisPoint2InfoWithBOAssign(clang::Expr *lhs, clang::Expr *rhs);
-  void AnalysisReadStmt(clang::Stmt *LHSorSR);       // all resource
-  void AnalysisWriteStmt(clang::Stmt *RHSorSW);      // all resource
-  void AnalysisGlobalOnly(clang::Stmt *s, bool lhs); // only global resource
+  void AnalysisResource(clang::Stmt *s, bool isWrite);
   void AnalysisWithCFG();
   void Analysis();
   FunctionResult &getFunctionResult() { return _Result; }

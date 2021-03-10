@@ -968,19 +968,12 @@ void FunctionAnalyzer::AnalysisPoint2InfoWithBOAssign(Expr *lhs, Expr *rhs) {
   }
 }
 
-void FunctionAnalyzer::AnalysisReadStmt(Stmt *LHSorSR) {
-  _StmtAnalyzer.ResetStmt(false, StmtLhsRhsAnalyzer::ResAnaMode_t::ALL_MODE);
-  _StmtAnalyzer.Visit(LHSorSR);
-}
-
-void FunctionAnalyzer::AnalysisWriteStmt(Stmt *RHSorSW) {
-  _StmtAnalyzer.ResetStmt(true, StmtLhsRhsAnalyzer::ResAnaMode_t::ALL_MODE);
-  _StmtAnalyzer.Visit(RHSorSW);
-}
-
-void FunctionAnalyzer::AnalysisGlobalOnly(Stmt *s, bool lhs) {
-  _StmtAnalyzer.ResetStmt(lhs,
-                          StmtLhsRhsAnalyzer::ResAnaMode_t::GLOBAL_ONLY_MODE);
+void FunctionAnalyzer::AnalysisResource(Stmt *s, bool isWrite) {
+  StmtLhsRhsAnalyzer::ResAnaMode_t mode;
+  mode = _CfgMgr.isGlobalResourceOnly()
+             ? StmtLhsRhsAnalyzer::ResAnaMode_t::GLOBAL_ONLY_MODE
+             : StmtLhsRhsAnalyzer::ResAnaMode_t::ALL_MODE;
+  _StmtAnalyzer.ResetStmt(isWrite, mode);
   _StmtAnalyzer.Visit(s);
 }
 
@@ -1006,8 +999,7 @@ void FunctionAnalyzer::AnalysisWithCFG() {
         // just handle condition
         // condition maybe null, eg, for ( ; ; )
         if (const Stmt *TC = block->getTerminatorCondition()) {
-          // AnalysisReadStmt(const_cast<Stmt *>(TC));
-          AnalysisGlobalOnly(const_cast<Stmt *>(TC), true);
+          AnalysisResource(const_cast<Stmt *>(TC), false);
         }
         break;
       case Stmt::ConditionalOperatorClass:
@@ -1015,8 +1007,7 @@ void FunctionAnalyzer::AnalysisWithCFG() {
         /* ? : */
       case Stmt::BinaryOperatorClass: /* &&, ||, ! */
         // handle all sub expr
-        // AnalysisReadStmt(TS);
-        AnalysisGlobalOnly(TS, true);
+        AnalysisResource(TS, false);
         break;
       case Stmt::BreakStmtClass:
       case Stmt::ContinueStmtClass:
@@ -1060,29 +1051,24 @@ void FunctionAnalyzer::AnalysisWithCFG() {
             AnalysisPoint2InfoWithBOAssign(lhs, rhs);
           }
           if (BO->isAssignmentOp()) {
-            // AnalysisWriteStmt(lhs);
-            AnalysisGlobalOnly(lhs, true);
-            // AnalysisReadStmt(rhs);
-            AnalysisGlobalOnly(rhs, false);
+            AnalysisResource(lhs, true);
+            AnalysisResource(rhs, false);
           } else {
-            // AnalysisReadStmt(const_cast<Stmt *>(stmt));
-            AnalysisGlobalOnly(const_cast<Stmt *>(stmt), false);
+            AnalysisResource(const_cast<Stmt *>(stmt), false);
           }
         } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(stmt)) {
           /* Here we assume that:
            * All UnOp will write accsee Opcode, not only
            * isIncrementDecrementOp()
            */
-          // AnalysisWriteStmt(UO->getSubExpr());
-          AnalysisGlobalOnly(UO->getSubExpr(), true);
+          AnalysisResource(UO->getSubExpr(), true);
         } else {
           /*
           llvm::errs() << "Stmt is: [ " << stmt->getStmtClassName()
                        << " ] In " << stmt->getBeginLoc().printToString(_SM)
                        << "\n";
           */
-          // AnalysisReadStmt(const_cast<Stmt *>(stmt));
-          AnalysisGlobalOnly(const_cast<Stmt *>(stmt), false);
+          AnalysisResource(const_cast<Stmt *>(stmt), false);
         } // if stmt is a BinOp or UnOp or Other?
       }
     } // for stmt in bb
