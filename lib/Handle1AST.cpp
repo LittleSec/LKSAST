@@ -279,6 +279,7 @@ FunPtrExtractor::FromExpr(Expr *E, FunctionDecl *scopeFD, bool shouldCheck) {
   if (UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
     E = UO->getSubExpr()->IgnoreParenCasts();
   }
+  E = E->IgnoreImpCasts();
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     // local: parm, funcptr val, func
     // global: funcptr val, func
@@ -613,34 +614,7 @@ void StmtLhsRhsAnalyzer::ResetStmt(bool lhs, ResAnaMode_t mode) {
   isLhs = lhs;
   _AccType = isLhs ? ResourceAccessNode::AccessType::Write
                    : ResourceAccessNode::AccessType::Read;
-}
-
-void StmtLhsRhsAnalyzer::AnalysisResourceInVD(VarDecl *VD) {
-  switch (_ResourceMode) {
-  case NONE_MODE:
-  case GLOBAL_ONLY_MODE:
-    return;
-  }
-  QualType Ty = VD->getType();
-  if (auto convertype = Ty->getPointeeOrArrayElementType()) {
-    Ty = convertype->getCanonicalTypeInternal();
-  }
-  if (Ty->isStructureType()) {
-    if (VD->hasInit()) {
-      ResourceAccessNode tmp(ResourceAccessNode::ResourceType::Structure,
-                             ResourceAccessNode::AccessType::Write,
-                             VD->getName().str());
-      _Result._Resources.insert(tmp);
-      return;
-    }
-  }
-  /*
-    Note:
-    It does not need to check if VD hasGlobalStorage,
-    because we not need to think about StaticLocal Variable,
-    and other GlobalStorage VD init does not belong to any functions.
-    what we need if (VD->hasGlobalStorage() && !VD->isStaticLocal())
-   */
+  _tmpResources.clear();
 }
 
 void StmtLhsRhsAnalyzer::AnalysisPtrInfoInVD(VarDecl *VD) {
@@ -648,14 +622,56 @@ void StmtLhsRhsAnalyzer::AnalysisPtrInfoInVD(VarDecl *VD) {
 }
 
 void StmtLhsRhsAnalyzer::VisitInitListExpr(InitListExpr *ILE) {
+  // analysis ptr info
   _FptrExtractor.FromStructureInitListExpr(ILE, _ScopeFD,
                                            _Need2AnalysisPtrInfo);
+  // analysis resource
+  switch (_ResourceMode) {
+  case NONE_MODE:
+  case GLOBAL_ONLY_MODE:
+    return;
+  }
+  if (ILE->isSyntacticForm()) {
+    InitListExpr *tmpILE = ILE->getSemanticForm();
+    if (tmpILE != nullptr) {
+      ILE = tmpILE;
+    }
+  }
+  QualType Ty = ILE->getType();
+  if (Ty->isStructureType()) {
+    RecordDecl *RD = Ty->getAsStructureType()->getDecl();
+    if (!_CfgMgr.isNeedToAnalysis(RD, false)) {
+      return;
+    }
+    RecordDecl::field_iterator fdit = RD->field_begin(), fded = RD->field_end();
+    for (unsigned int i = 0; i < ILE->getNumInits() && fdit != fded;
+         i++, fdit++) {
+      if (!_CfgMgr.isNeedToAnalysis(*fdit, false)) {
+        continue;
+      }
+      Expr *IE = ILE->getInit(i);
+      if (isa<ImplicitValueInitExpr>(IE)) {
+        continue;
+      }
+      ResourceAccessNode tmp(RD->getName().str(), fdit->getName().str(),
+                             _AccType);
+      _Result._Resources.insert(tmp);
+    }
+  }
 }
 
 void StmtLhsRhsAnalyzer::VisitDeclStmt(DeclStmt *DS) {
   for (Decl *DI : DS->decls()) {
     if (VarDecl *VD = dyn_cast<VarDecl>(DI)) {
-      AnalysisResourceInVD(VD);
+      /* Note:
+       * It does not need to analysis resource from VD,
+       * IF VD isStructureType and hasInit,
+       * it will analysis by VisitInitListExpr()
+       * ELSE VD hasGlobalStorage here is StaticLocal Variable,
+       * we do not think about it,
+       * and other GlobalStorage VD init does not belong to any functions.
+       * What we need if (VD->hasGlobalStorage() && !VD->isStaticLocal())
+       */
       AnalysisPtrInfoInVD(VD);
     }
   }
@@ -671,25 +687,21 @@ void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
     if (auto convertype = Ty->getPointeeOrArrayElementType()) {
       Ty = convertype->getCanonicalTypeInternal();
     }
-    if (_ResourceMode != GLOBAL_ONLY_MODE && Ty->isStructureType()) {
-      if (!_CfgMgr.isNeedToAnalysis(Ty->getAsRecordDecl())) {
-        return;
-      }
-      if (VD->hasInit()) {
-        ResourceAccessNode tmp(ResourceAccessNode::ResourceType::Structure,
-                               _AccType, VD->getName().str());
-        _Result._Resources.insert(tmp);
-        return;
-      }
-    }
-    if (_ResourceMode != FIELD_ONLY_MODE && VD->hasGlobalStorage() &&
-        !VD->isStaticLocal()) {
-      if (VD->hasInit()) {
+    // Note: NONE_MODE can not reach here
+    if (VD->hasGlobalStorage() && !VD->isStaticLocal()) {
+      /* Note: 3 */
+      // Note: no matter _ResourceMode, it should insert resource
+      if (Ty->isStructureType()) {
+        for (auto &t : _tmpResources) {
+          _Result._Resources.insert(t);
+        }
+        _tmpResources.clear();
+      } else {
         ResourceAccessNode tmp(ResourceAccessNode::ResourceType::GlobalVal,
                                _AccType, VD->getName().str());
         _Result._Resources.insert(tmp);
-        return;
       }
+      return;
     }
   } else {
     if (valuedecl) {
@@ -712,9 +724,7 @@ void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
 }
 
 void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
-  switch (_ResourceMode) {
-  case NONE_MODE:
-  case GLOBAL_ONLY_MODE:
+  if (_ResourceMode == NONE_MODE) {
     return;
   }
   // FIXME: should be deduplicated the funcptr field, or think about:
@@ -725,14 +735,24 @@ void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
       return;
     }
     RecordDecl *rd = fd->getParent();
-    if (!rd->isStruct()) { // maybe a union
+    /* Note: 3 */
+    if (!rd->isStruct()) {
       return;
     }
     if (!_CfgMgr.isNeedToAnalysis(rd)) {
       return;
     }
     ResourceAccessNode tmp(rd->getName().str(), fd->getName().str(), _AccType);
-    _Result._Resources.insert(tmp);
+    if (_ResourceMode != GLOBAL_ONLY_MODE) {
+      _Result._Resources.insert(tmp);
+    } else {
+      /* Note:
+       * VisitDeclRefExpr() will insert these resource into _Resources
+       * if they are global
+       */
+      _tmpResources.insert(tmp);
+    }
+
   } else {
     llvm::errs() << "[Unknown] ME->getMemberDecl() is not a FieldDecl?\n";
     memdecl->getLocation().dump(_SM);
@@ -986,7 +1006,8 @@ void FunctionAnalyzer::AnalysisWithCFG() {
         // just handle condition
         // condition maybe null, eg, for ( ; ; )
         if (const Stmt *TC = block->getTerminatorCondition()) {
-          AnalysisReadStmt(const_cast<Stmt *>(TC));
+          // AnalysisReadStmt(const_cast<Stmt *>(TC));
+          AnalysisGlobalOnly(const_cast<Stmt *>(TC), true);
         }
         break;
       case Stmt::ConditionalOperatorClass:
@@ -994,7 +1015,8 @@ void FunctionAnalyzer::AnalysisWithCFG() {
         /* ? : */
       case Stmt::BinaryOperatorClass: /* &&, ||, ! */
         // handle all sub expr
-        AnalysisReadStmt(TS);
+        // AnalysisReadStmt(TS);
+        AnalysisGlobalOnly(TS, true);
         break;
       case Stmt::BreakStmtClass:
       case Stmt::ContinueStmtClass:
@@ -1038,9 +1060,12 @@ void FunctionAnalyzer::AnalysisWithCFG() {
             AnalysisPoint2InfoWithBOAssign(lhs, rhs);
           }
           if (BO->isAssignmentOp()) {
-            AnalysisWriteStmt(lhs);
+            // AnalysisWriteStmt(lhs);
+            AnalysisGlobalOnly(lhs, true);
+            // AnalysisReadStmt(rhs);
             AnalysisGlobalOnly(rhs, false);
           } else {
+            // AnalysisReadStmt(const_cast<Stmt *>(stmt));
             AnalysisGlobalOnly(const_cast<Stmt *>(stmt), false);
           }
         } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(stmt)) {
@@ -1048,13 +1073,15 @@ void FunctionAnalyzer::AnalysisWithCFG() {
            * All UnOp will write accsee Opcode, not only
            * isIncrementDecrementOp()
            */
-          AnalysisWriteStmt(UO->getSubExpr());
+          // AnalysisWriteStmt(UO->getSubExpr());
+          AnalysisGlobalOnly(UO->getSubExpr(), true);
         } else {
           /*
           llvm::errs() << "Stmt is: [ " << stmt->getStmtClassName()
                        << " ] In " << stmt->getBeginLoc().printToString(_SM)
                        << "\n";
           */
+          // AnalysisReadStmt(const_cast<Stmt *>(stmt));
           AnalysisGlobalOnly(const_cast<Stmt *>(stmt), false);
         } // if stmt is a BinOp or UnOp or Other?
       }

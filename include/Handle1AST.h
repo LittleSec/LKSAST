@@ -204,6 +204,7 @@ private:
   bool isLhs; // make sense when _ResourceMode != NONE_MODE
   bool hasAsm;
   ResourceAccessNode::AccessType _AccType;
+  ResourcesType _tmpResources; // each Visit() will clear this
   Ptr2InfoType &_Need2AnalysisPtrInfo;
   FunctionResult &_Result;
   FunPtrExtractor &_FptrExtractor;
