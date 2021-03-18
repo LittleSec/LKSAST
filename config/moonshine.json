@@ -1,0 +1,10 @@
+{
+  "Input": {
+    "AstList": "/home/littlesec/Downloads/linux-4.13.clang/astList.txt"
+  },
+  "Output": {
+    "Fun2Json": "fun2json.moonshine.v4.13.json",
+    "Need2AnalysisPtrInfo": "Need2AnalysisPtrInfo.moonshine.v4.13.json",
+    "HasAnalysisPtrInfo": "PtrInfo.moonshine.v4.13.json"
+  }
+}
