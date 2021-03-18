@@ -162,6 +162,7 @@ private:
   bool isLhs; // make sense when _ResourceMode != NONE_MODE
   bool hasAsm;
   ResourceAccessNode::AccessType _AccType;
+  ResourcesType _tmpResources; // each Visit() will clear this
   FunctionResult &_Result;
 
 public:
@@ -181,6 +182,7 @@ public:
 
   void ResetStmt(bool lhs = false, ResAnaMode_t mode = ALL_MODE);
   void VisitDeclRefExpr(clang::DeclRefExpr *DRE);
+  void VisitMemberExpr(clang::MemberExpr *ME);
   /****************************
    * analysis call graph
    * analysis funptr point-to info

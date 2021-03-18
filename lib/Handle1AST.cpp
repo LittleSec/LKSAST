@@ -271,17 +271,63 @@ void StmtLhsRhsAnalyzer::ResetStmt(bool lhs, ResAnaMode_t mode) {
                    : ResourceAccessNode::AccessType::Read;
 }
 
+void StmtLhsRhsAnalyzer::VisitMemberExpr(MemberExpr *ME) {
+  if (_ResourceMode == NONE_MODE) {
+    return;
+  }
+  // FIXME: should be deduplicated the funcptr field, or think about:
+  // struct fs->struct fsop->...(all of fields in fsop is funcptr)
+  ValueDecl *memdecl = ME->getMemberDecl();
+  if (FieldDecl *fd = dyn_cast<FieldDecl>(memdecl)) {
+    if (!_CfgMgr.isNeedToAnalysis(fd)) {
+      return;
+    }
+    RecordDecl *rd = fd->getParent();
+    /* Note: 3 */
+    if (!rd->isStruct()) {
+      return;
+    }
+    if (!_CfgMgr.isNeedToAnalysis(rd)) {
+      return;
+    }
+    ResourceAccessNode tmp(rd->getName().str(), fd->getName().str(), _AccType);
+    /* Note:
+     * VisitDeclRefExpr() will insert these resource into _Resources
+     * if they are global
+     */
+    _tmpResources.insert(tmp);
+  } else {
+    llvm::errs() << "[Unknown] ME->getMemberDecl() is not a FieldDecl?\n";
+    memdecl->getLocation().dump(_SM);
+  }
+}
+
 void StmtLhsRhsAnalyzer::VisitDeclRefExpr(DeclRefExpr *DRE) {
   if (_ResourceMode == NONE_MODE) {
     return;
   }
   ValueDecl *valuedecl = DRE->getDecl();
   if (const VarDecl *VD = dyn_cast<VarDecl>(valuedecl)) {
+    QualType Ty = VD->getType();
+    if (auto convertype = Ty->getPointeeOrArrayElementType()) {
+      Ty = convertype->getCanonicalTypeInternal();
+    }
     if (VD->hasGlobalStorage() && !VD->isStaticLocal()) {
-      ResourceAccessNode tmp(ResourceAccessNode::ResourceType::GlobalVal,
-                             _AccType, VD->getName().str());
-      _Result._Resources.insert(tmp);
-      return;
+      /* Note:
+       * It seems that MoonShine Smatch do not handle the global var which is
+       * not structure
+       */
+      if (Ty->isStructureType()) {
+        for (auto &t : _tmpResources) {
+          _Result._Resources.insert(t);
+        }
+        _tmpResources.clear();
+        return;
+      } else {
+        // ResourceAccessNode tmp(ResourceAccessNode::ResourceType::GlobalVal,
+        //                        _AccType, VD->getName().str());
+        // _Result._Resources.insert(tmp);
+      }
     }
   } else {
     if (valuedecl) {
