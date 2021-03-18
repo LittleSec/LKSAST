@@ -8,8 +8,8 @@ import time
 
 # TODO in this file as an attention
 
-fun2json_fn = "fun2json.moonshine.v4.19.json"
-output_dir = "sysdep.v4.19.moonshine"
+fun2json_fn = "fun2json.moonshine.v4.14.json"
+output_dir = "sysdep.v4.14.moonshine"
 
 if not os.path.exists(output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -27,8 +27,7 @@ syscall_set = {}  # auctally it is a map, key is xxx, value is exactly __???_sys
 
 
 def isSyscall(f):
-    return f.startswith("__x64_sys_") or f.startswith("__ia32_sys_") or \
-        f.startswith("__ia32_compat_sys_") or f.startswith("__se_sys_")
+    return f.startswith("SYSC_") or f.startswith("C_SYSC_")
 
 
 print("[!] Reading TU dump...")
@@ -42,7 +41,7 @@ for f, j in fun2json_map.items():
 print("[+] Done read TU dump")
 for f, _ in fun2json_map.items():
     # TODO: modify here
-    puref = f.split("_sys_")[-1]
+    puref = f.split("SYSC_")[-1]
     if isSyscall(f):
         if puref not in syscall_collection:
             syscall_collection[puref] = set()
@@ -50,7 +49,7 @@ for f, _ in fun2json_map.items():
 for pure_sys, syss in syscall_collection.items():
     # syss is a set, values not in the follow order
     # TODO: modify here
-    for prefix_sys in ["__x64_sys_", "__se_sys_", "__ia32_sys_", "__ia32_compat_sys_"]:
+    for prefix_sys in ["SYSC_", "C_SYSC_"]:
         f = prefix_sys + pure_sys
         if f in syss and f in TUsDumpJson and \
                 TUsDumpJson[f]["callgraph"] != None and "sys_ni_syscall" not in TUsDumpJson[f]["callgraph"]:
@@ -58,7 +57,7 @@ for pure_sys, syss in syscall_collection.items():
             break
     else:
         # TODO: modify here
-        f = "__x64_sys_" + pure_sys
+        f = "SYSC_" + pure_sys
         syscall_set[pure_sys] = f
         print("[!] syscall: {0} is Empty. Default {1}".format(pure_sys, f))
 
@@ -101,7 +100,13 @@ def mergeResource(syscall):
                         resource_map[k] = v
             if TUsDumpJson[f]["callgraph"] != None:
                 for cgnode in TUsDumpJson[f]["callgraph"].items():
-                    cg_queue.append(cgnode)
+                    # TODO: modify here
+                    if cgnode[0] not in TUsDumpJson and (cgnode[0].startswith("sys_") or cgnode[0].startswith("compat_sys_")):
+                        newcg = (cgnode[0].replace("sys_", "SyS_"), cgnode[1])
+                        cg_queue.append(newcg)
+                        # print(newcg)
+                    else:
+                        cg_queue.append(cgnode)
     return resource_map
 
 
