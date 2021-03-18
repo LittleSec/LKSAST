@@ -13,6 +13,9 @@ regs->ip = (unsigned long) ksig->ka.sa.sa_handler;
 // }
 ```
 
+### 3
+Not need to check field for Union variable, because all fields store in same addr in a Union variable 
+
 ### About Terminator/TerminatorStmt
 1. `eg. if (a < b)`
     + TerminatorStmt: if (a < b)
@@ -84,16 +87,17 @@ CONFIG_SECURITYFS=y
 ### use clang build kernel
 >refer to: https://github.com/ClangBuiltLinux/continuous-integration2/tree/main/tuxsuite
 
-| version | make variable |   syscall  |
-| ------- | ------------- | ---------- |
-|   4.13  | CC=clang      |    SYSC_   |
-|   4.15  | CC=clang      |    SYSC_   |
-|   4.19  | CC=clang      | __x64_sys_ |
-|   5.3   | CC=clang      | __x64_sys_ |
-|   5.8   | LLVM=1        | __x64_sys_ |
+| version | make variable |   syscall  |  note  |
+| ------- | ------------- | ---------- | ------ |
+|   4.13  | CC=clang      |    SYSC_   |        |
+|   4.14  | CC=clang      |    SYSC_   |        |
+|   4.15  | CC=clang      |    SYSC_   |        |
+|   4.19  | CC=clang      | __x64_sys_ |        |
+|   5.3   | CC=clang      | __x64_sys_ | unused |
+|   5.8   | LLVM=1        | __x64_sys_ | unused |
 
-1. 4.13/4.15 需要在 Makefile 里加入`KBUILD_CFLAGS += -fno-builtin-bcmp`
+1. v4.x 需要在 Makefile 里加入`KBUILD_CFLAGS += -fno-builtin-bcmp`
     + http://lkml.iu.edu/hypermail/linux/kernel/1903.1/04451.html
-2. 4.19在release没有对clang完整的测试因此需要打patch才能使用clang编译
+2. v4.19-v4.19.47在release没有对clang完整的测试因此需要打patch才能使用clang编译
     + https://ask.csdn.net/questions/1487514
     + https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=fd45cd4530ebc7c846f83b26fef526f4c960d1ee
